@@ -1,0 +1,73 @@
+{{define "dashboard.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head flex items-center justify-between flex-wrap gap-1">
+    <div>
+      <h1>我的实例</h1>
+      <p>共 {{.Data.Total}} 台，其中 {{.Data.Running}} 台运行中。</p>
+    </div>
+    <a class="btn btn-primary" href="/app/deploy">＋ 创建实例</a>
+  </div>
+
+  {{template "flash" .}}
+
+  {{if .Data.Instances}}
+  <div class="inst-grid">
+    {{range .Data.Instances}}
+    <div class="card inst" data-inst="{{.ID}}">
+      <div class="inst-top">
+        <div style="min-width:0">
+          <div class="inst-name">{{if .Label}}{{.Label}}{{else}}{{.Name}}{{end}}</div>
+          <div class="inst-sub">{{.Name}} · {{.NodeName}}</div>
+        </div>
+        <span class="badge {{statusClass .Status}}" data-field="status">{{statusText .Status}}</span>
+      </div>
+
+      <div class="inst-specs">
+        <span class="tag">{{.CPU}} 核</span>
+        <span class="tag">{{mb .MemoryMB}}</span>
+        <span class="tag">{{gb .DiskGB}}</span>
+        <span class="tag">{{.Image}}</span>
+        <span class="tag">{{modeText .Mode}}</span>
+      </div>
+
+      <div class="inst-net">
+        {{if .SSHPort}}
+        <div class="row"><span>SSH 端口</span><b>{{.SSHPort}}</b></div>
+        {{end}}
+        {{if .PortFrom}}
+        <div class="row"><span>端口段</span><b>{{.PortFrom}}–{{.PortTo}}</b></div>
+        {{end}}
+        {{if .V6Addr}}
+        <div class="row"><span>IPv6</span><b data-field="ipv6">{{.V6Addr}}</b></div>
+        {{end}}
+        <div class="row"><span>内网 IP</span><b data-field="ipv4">{{if .NATAddr}}{{.NATAddr}}{{else}}—{{end}}</b></div>
+        <div class="row"><span>内存</span><b data-field="mem">—</b></div>
+        <div class="row"><span>到期</span><b>{{fmtDate .ExpiresAt}}</b></div>
+      </div>
+
+      {{if eq .Status "error"}}
+      <div class="alert alert-bad mb-0" style="font-size:.82rem">创建失败：{{.Error}}</div>
+      {{end}}
+
+      <div class="btn-row">
+        <a class="btn btn-sm" href="/app/instance/{{.ID}}">详情</a>
+        <a class="btn btn-sm" href="/app/console/{{.ID}}">终端</a>
+        <button class="btn btn-sm" data-action="start" data-id="{{.ID}}">启动</button>
+        <button class="btn btn-sm" data-action="stop" data-id="{{.ID}}"
+                data-confirm-msg="确定要停止该实例吗？">停止</button>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">📦</div>
+    <p>你还没有任何实例。</p>
+    <a class="btn btn-primary" href="/app/deploy">创建第一台实例</a>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

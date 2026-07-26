@@ -1,0 +1,70 @@
+{{define "redeem_ok.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>开通成功 🎉</h1>
+    <p>实例正在后台创建，首次拉取镜像可能需要几分钟，完成后状态会自动变为「运行中」。</p>
+  </div>
+
+  <div class="alert alert-warn">
+    <b>请立即保存 root 密码</b> —— 出于安全考虑，此密码仅在本页显示一次，离开后无法再次查看。
+  </div>
+
+  {{with .Data.Inst}}
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>连接信息</h3>
+      <div class="field">
+        <label>root 密码</label>
+        <div class="copy">
+          <code>{{$.Data.RootPassword}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+      </div>
+
+      {{if .SSHPort}}
+      <div class="field">
+        <label>SSH 命令</label>
+        <div class="copy">
+          <code>ssh root@{{$.Data.SSHHost}} -p {{.SSHPort}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+      </div>
+      {{end}}
+
+      {{if .V6Addr}}
+      <div class="field">
+        <label>IPv6 直连</label>
+        <div class="copy">
+          <code>ssh root@{{.V6Addr}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+        <p class="hint">独立 IPv6 地址：{{.V6Addr}}</p>
+      </div>
+      {{end}}
+    </div>
+
+    <div class="card">
+      <h3>实例规格</h3>
+      <div class="kv">
+        <div class="row"><span>实例名</span><b class="mono">{{.Name}}</b></div>
+        {{if .Label}}<div class="row"><span>备注</span><b>{{.Label}}</b></div>{{end}}
+        <div class="row"><span>系统</span><b>{{.Image}}</b></div>
+        <div class="row"><span>CPU</span><b>{{.CPU}} 核</b></div>
+        <div class="row"><span>内存</span><b>{{mb .MemoryMB}}</b></div>
+        <div class="row"><span>硬盘</span><b>{{gb .DiskGB}}</b></div>
+        <div class="row"><span>网络</span><b>{{modeText .Mode}}</b></div>
+        {{if .PortFrom}}<div class="row"><span>端口段</span><b>{{.PortFrom}}–{{.PortTo}}</b></div>{{end}}
+        <div class="row"><span>到期时间</span><b>{{fmtDate .ExpiresAt}}</b></div>
+      </div>
+      <div class="btn-row mt-2">
+        <a class="btn btn-primary" href="/app/instance/{{.ID}}">查看详情</a>
+        <a class="btn" href="/app">返回列表</a>
+      </div>
+    </div>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

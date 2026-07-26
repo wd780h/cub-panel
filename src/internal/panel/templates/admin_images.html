@@ -1,0 +1,193 @@
+{{define "admin_images.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>镜像管理</h1>
+    <p>查看镜像源当前提供的系统，预热或清理节点上的镜像缓存。套餐里的镜像别名必须能在这里找到。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  {{if not .Data.Nodes}}
+  <div class="card empty">
+    <div class="big">🗄️</div>
+    <p>还没有节点。先到「节点」页添加一台，再回来管理它的镜像。</p>
+  </div>
+  {{else}}
+
+  <details class="panel" open>
+    <summary>节点与手动拉取</summary>
+    <div class="body">
+      <form method="get" action="/admin/images" class="form-grid" style="margin-bottom:.75rem">
+        <div class="field">
+          <label for="img-node">选择节点</label>
+          <select id="img-node" name="node" data-autosubmit>
+            {{range .Data.Nodes}}
+            <option value="{{.ID}}" {{if and $.Data.Node (eq .ID $.Data.Node.ID)}}selected{{end}}>{{.Name}}{{if .Region}} · {{.Region}}{{end}}</option>
+            {{end}}
+          </select>
+        </div>
+      </form>
+
+      {{if .Data.Node}}
+      <form method="post" action="/admin/images/pull" class="form-grid">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input type="hidden" name="node" value="{{.Data.Node.ID}}">
+        <div class="field">
+          <label for="img-alias">按别名拉取（预热）</label>
+          <input id="img-alias" type="text" name="alias" maxlength="64" required
+                 class="mono" placeholder="debian/13">
+          <p class="hint">首次开机才下载镜像会让用户等几分钟；提前预热可以让开通接近秒级。</p>
+        </div>
+        <div class="field">
+          <button class="btn btn-primary" type="submit" style="margin-top:26px">拉取镜像</button>
+        </div>
+      </form>
+      {{end}}
+    </div>
+  </details>
+
+  {{if .Data.Node}}
+
+  <h2 class="section-title">已缓存镜像 · {{.Data.Node.Name}}</h2>
+  {{if .Data.Local}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>别名</th><th>类型</th><th>系统</th><th>架构</th><th>大小</th><th>缓存时间</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Local}}
+        <tr>
+          <td class="mono">{{if .Aliases}}{{join .Aliases ", "}}{{else}}<span class="dim">{{printf "%.12s" .Fingerprint}}</span>{{end}}</td>
+          <td>{{if eq .Type "virtual-machine"}}<span class="tag">KVM</span>{{else}}<span class="dim">容器</span>{{end}}</td>
+          <td>{{.OS}} {{.Release}}{{if and .Variant (ne .Variant "default")}} <span class="dim">({{.Variant}})</span>{{end}}</td>
+          <td class="mono">{{.Arch}}</td>
+          <td class="nowrap">{{bytes .SizeBytes}}</td>
+          <td class="nowrap">{{fmtTime .UploadedAt}}</td>
+          <td class="t-right t-actions">
+            <form method="post" action="/admin/images/delete"
+                  data-confirm="删除该镜像缓存？正在使用它的实例不受影响，下次开通会重新下载。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="node" value="{{$.Data.Node.ID}}">
+              <input type="hidden" name="fingerprint" value="{{.Fingerprint}}">
+              <button class="btn btn-sm btn-danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty">
+    <p>该节点还没有缓存任何镜像。首次开机会自动下载，也可以在上方或下表预热。</p>
+  </div>
+  {{end}}
+
+  <h2 class="section-title">ISO 库（KVM 光驱） · {{.Data.Node.Name}}</h2>
+  <details class="panel">
+    <summary>从 URL 下载 ISO</summary>
+    <div class="body">
+      <form method="post" action="/admin/isos/pull" class="form-grid">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input type="hidden" name="node" value="{{.Data.Node.ID}}">
+        <div class="field span2">
+          <label>ISO 下载地址</label>
+          <input type="text" name="url" maxlength="500" required class="mono"
+                 placeholder="https://example.com/xxx.iso">
+        </div>
+        <div class="field">
+          <label>保存文件名（可选）</label>
+          <input type="text" name="name" maxlength="68" class="mono" placeholder="留空则取 URL 末段，须 .iso">
+        </div>
+        <div class="field">
+          <button class="btn btn-primary" type="submit" style="margin-top:26px">下载到节点</button>
+        </div>
+      </form>
+      <p class="hint">下载后可在 KVM 虚拟机详情页挂载为光驱（可设为从 ISO 引导，用于装自定义系统）。</p>
+    </div>
+  </details>
+  {{if .Data.ISOs}}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ISO 文件</th><th>大小</th><th class="t-right">操作</th></tr></thead>
+      <tbody>
+        {{range .Data.ISOs}}
+        <tr>
+          <td class="mono">{{.Name}}</td>
+          <td class="nowrap">{{bytes .SizeBytes}}</td>
+          <td class="t-right t-actions">
+            <form method="post" action="/admin/isos/delete" data-confirm="删除 ISO {{.Name}}？挂载中的实例请先卸载。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="node" value="{{$.Data.Node.ID}}">
+              <input type="hidden" name="name" value="{{.Name}}">
+              <button class="btn btn-sm btn-danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty"><p>该节点 ISO 库为空。上方填 URL 下载后即可给 KVM 虚拟机挂载。</p></div>
+  {{end}}
+
+  <h2 class="section-title">镜像源可用系统</h2>
+  {{if .Data.Remote}}
+  <div class="panel">
+    <div class="body">
+      <div class="field">
+        <input type="search" data-filter="#remoteImages" placeholder="筛选，例如 debian、alpine、ubuntu…" aria-label="筛选镜像">
+      </div>
+      <p class="hint">面板的开机初始化完整支持 debian / ubuntu（apt + systemd）与 alpine（apk + OpenRC）；
+        其他系统能开机，但 SSH 与网络初始化可能需要手动处理。</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table id="remoteImages">
+      <thead>
+        <tr><th>别名</th><th>系统</th><th>版本</th><th>变体</th><th>状态</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Remote}}
+        <tr>
+          <td class="mono">{{.Alias}}</td>
+          <td>{{.OS}}</td>
+          <td>{{.Release}}</td>
+          <td>{{.Variant}}</td>
+          <td>
+            {{if index $.Data.Cached .Alias}}<span class="badge ok">容器</span>{{end}}
+            {{if index $.Data.CachedVM .Alias}}<span class="badge ok">KVM</span>{{end}}
+            {{if and (not (index $.Data.Cached .Alias)) (not (index $.Data.CachedVM .Alias))}}<span class="badge off">未缓存</span>{{end}}
+          </td>
+          <td class="t-right t-actions">
+            <form method="post" action="/admin/images/pull">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="node" value="{{$.Data.Node.ID}}">
+              <input type="hidden" name="alias" value="{{.Alias}}">
+              <button class="btn btn-sm" type="submit">预热容器</button>
+            </form>
+            <form method="post" action="/admin/images/pull">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="node" value="{{$.Data.Node.ID}}">
+              <input type="hidden" name="alias" value="{{.Alias}}">
+              <input type="hidden" name="type" value="virtual-machine">
+              <button class="btn btn-sm" type="submit">预热 KVM</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{end}}
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

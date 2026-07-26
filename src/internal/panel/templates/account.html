@@ -1,0 +1,52 @@
+{{define "account.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>账号设置</h1>
+    <p>管理你的登录信息。</p>
+  </div>
+
+  {{template "flash" .}}
+
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>账号信息</h3>
+      <div class="kv">
+        <div class="row"><span>邮箱</span><b>{{.User.Email}}</b></div>
+        <div class="row"><span>角色</span><b>{{if .User.IsAdmin}}管理员{{else}}普通用户{{end}}</b></div>
+        <div class="row"><span>实例数</span><b>{{.Data.InstanceCount}}</b></div>
+        <div class="row"><span>余额</span><b>{{money .User.BalanceCents}} 元 <a href="/app/recharge" style="font-weight:400;font-size:.85em">去充值</a></b></div>
+        <div class="row"><span>注册时间</span><b>{{fmtTime .User.CreatedAt}}</b></div>
+        <div class="row"><span>上次登录</span><b>{{since .User.LastLoginAt}}</b></div>
+        <div class="row"><span>登录 IP</span><b class="mono">{{if .User.LastLoginIP}}{{.User.LastLoginIP}}{{else}}—{{end}}</b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>修改密码</h3>
+      <p class="hint" style="margin-top:-.4em">修改后其他设备上的登录会话将全部失效。</p>
+      <form method="post" action="/app/password">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <div class="field">
+          <label for="current">当前密码</label>
+          <input id="current" type="password" name="current" required
+                 autocomplete="current-password" maxlength="128">
+        </div>
+        <div class="field">
+          <label for="password">新密码</label>
+          <input id="password" type="password" name="password" required
+                 autocomplete="new-password" minlength="8" maxlength="128" placeholder="至少 8 位">
+        </div>
+        <div class="field">
+          <label for="password2">确认新密码</label>
+          <input id="password2" type="password" name="password2" required
+                 autocomplete="new-password" minlength="8" maxlength="128">
+        </div>
+        <button class="btn btn-primary" type="submit">保存</button>
+      </form>
+    </div>
+  </div>
+</main>
+
+{{template "foot" .}}{{end}}

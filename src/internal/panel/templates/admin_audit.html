@@ -1,0 +1,35 @@
+{{define "admin_audit.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>操作日志</h1>
+    <p>最近 {{len .Data.Audit}} 条记录。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  {{if .Data.Audit}}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>详情</th><th>IP</th></tr></thead>
+      <tbody>
+        {{range .Data.Audit}}
+        <tr>
+          <td class="dim nowrap">{{fmtTime .CreatedAt}}</td>
+          <td>{{if .Actor}}{{.Actor}}{{else}}<span class="dim">系统</span>{{end}}</td>
+          <td><span class="tag">{{.Action}}</span></td>
+          <td class="dim">{{.Detail}}</td>
+          <td class="mono dim">{{.IP}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty"><p>暂无记录。</p></div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

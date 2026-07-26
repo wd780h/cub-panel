@@ -1,0 +1,128 @@
+{{define "deploy.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head flex items-center justify-between flex-wrap gap-1">
+    <div>
+      <h1>创建实例</h1>
+      <p style="margin:0">当前余额 <b>{{money .Data.Balance}} 元</b>。选择套餐用余额开通，或用激活码开通。</p>
+    </div>
+    <button class="btn btn-primary" type="button" data-toggle="#redeemPanel">🎟️ 激活码开通</button>
+  </div>
+
+  {{template "flash" .}}
+
+  <details class="panel" id="redeemPanel" {{if .Data.Code}}open{{end}}>
+    <summary>激活码开通</summary>
+    <div class="body">
+      <div class="grid grid-2">
+        <form method="post" action="/app/redeem">
+          <input type="hidden" name="_csrf" value="{{.CSRF}}">
+          <div class="field">
+            <label for="code">激活码</label>
+            <input id="code" type="text" name="code" value="{{.Data.Code}}" required
+                   maxlength="19" spellcheck="false" autocapitalize="characters"
+                   placeholder="XXXX-XXXX-XXXX-XXXX" class="mono">
+            <p class="hint">四组由连字符分隔的大写字母与数字。规格由激活码对应的套餐决定。</p>
+          </div>
+          <div class="field">
+            <label for="rc-image">操作系统（可选）</label>
+            <select id="rc-image" name="image">
+              <option value="">使用套餐默认系统</option>
+              <option value="debian/12">Debian 12</option>
+              <option value="debian/13">Debian 13</option>
+              <option value="ubuntu/noble">Ubuntu 24.04</option>
+              <option value="alpine/3.21">Alpine 3.21</option>
+              <option value="alpine/3.22">Alpine 3.22</option>
+              <option value="alpine/edge">Alpine edge</option>
+            </select>
+            <p class="hint">若所选系统不在套餐允许范围内，开通会被拒绝。</p>
+          </div>
+          <div class="field">
+            <label for="rc-label">备注名（可选）</label>
+            <input id="rc-label" type="text" name="label" maxlength="32" placeholder="例如：测试机">
+          </div>
+          <button class="btn btn-primary" type="submit">激活码开通</button>
+        </form>
+        <div class="card" style="background:transparent">
+          <h3>开通须知</h3>
+          <ul class="plan-specs" style="margin-bottom:0">
+            <li><span>①</span><b style="font-weight:450;text-align:right">一个激活码只能使用一次，开通后立即作废。</b></li>
+            <li><span>②</span><b style="font-weight:450;text-align:right">首次创建需拉取系统镜像，可能耗时数分钟。</b></li>
+            <li><span>③</span><b style="font-weight:450;text-align:right">root 初始密码只显示一次，请及时保存。</b></li>
+            <li><span>④</span><b style="font-weight:450;text-align:right">到期后实例会自动停机，续期请联系管理员。</b></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <h2 class="section-title">余额开通</h2>
+  {{if .Data.Plans}}
+  <div class="grid grid-3">
+    {{range .Data.Plans}}
+    <div class="card plan">
+      <div class="plan-name">{{.Name}}</div>
+      <div class="plan-desc">{{.Description}}</div>
+      <ul class="plan-specs">
+        <li><span>类型</span><b>{{instTypeText .InstanceType}}</b></li>
+        <li><span>CPU</span><b>{{.CPU}} 核</b></li>
+        <li><span>内存</span><b>{{mb .MemoryMB}}</b></li>
+        <li><span>硬盘</span><b>{{gb .DiskGB}}</b></li>
+        <li><span>网络</span><b>{{modeText .Mode}}</b></li>
+        <li><span>时长</span><b>{{if .DurationDays}}{{.DurationDays}} 天{{else}}永久{{end}}</b></li>
+        <li><span>流量</span><b>{{if .TrafficGB}}{{.TrafficGB}} GB/月 · {{trafficModeText .TrafficMode}}{{else}}不限{{end}}</b></li>
+        <li><span>带宽</span><b>{{if or .RateDownMbps .RateUpMbps}}↓{{.RateDownMbps}} / ↑{{.RateUpMbps}} Mbps{{else}}不限{{end}}</b></li>
+        {{if .Features}}<li><span>特性</span><b>{{range $i, $f := .FeatureList}}{{if $i}} / {{end}}{{featText $f}}{{end}}</b></li>{{end}}
+        <li><span>价格</span><b>{{money .PriceCents}} 元</b></li>
+      </ul>
+      <form method="post" action="/app/deploy"
+            data-confirm="确认使用余额 {{money .PriceCents}} 元开通「{{.Name}}」？">
+        <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+        <input type="hidden" name="plan_id" value="{{.ID}}">
+        <div class="field">
+          <label>操作系统</label>
+          <select name="image">
+            {{range .ImageList}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+        </div>
+        <div class="field">
+          <label>备注名（可选）</label>
+          <input type="text" name="label" maxlength="32" placeholder="例如：测试机">
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">开通 · {{money .PriceCents}} 元</button>
+      </form>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">💳</div>
+    <p>暂无可用余额开通的套餐。可用上方「激活码开通」按钮兑换激活码。</p>
+  </div>
+  {{end}}
+
+  {{if .Data.Transactions}}
+  <h2 class="section-title">最近账单</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>时间</th><th>类型</th><th>金额</th><th>余额</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Transactions}}
+        <tr>
+          <td class="dim nowrap">{{fmtTime .CreatedAt}}</td>
+          <td>{{txKind .Kind}}</td>
+          <td class="mono nowrap">{{money .AmountCents}} 元</td>
+          <td class="mono nowrap">{{money .BalanceCents}} 元</td>
+          <td class="dim">{{.Note}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

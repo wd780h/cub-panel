@@ -1,0 +1,121 @@
+{{define "admin_codes.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>激活码</h1>
+    <p>共 {{.Data.Total}} 个，其中 {{.Data.Unused}} 个未使用。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  {{if .Data.New}}
+  <div class="card mb-2">
+    <div class="card-title">
+      <h3 class="mb-0">本次生成（{{len .Data.New}} 个）</h3>
+      <button class="btn btn-sm" type="button" id="copyAllCodes"
+              data-copy="{{range $i, $c := .Data.New}}{{if $i}}&#10;{{end}}{{$c}}{{end}}">复制全部</button>
+    </div>
+    <div class="code-list">
+      {{range .Data.New}}<code>{{.}}</code>{{end}}
+    </div>
+  </div>
+  {{end}}
+
+  <details class="panel">
+    <summary>批量生成激活码</summary>
+    <div class="body">
+      <form method="post" action="/admin/codes">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <div class="form-grid">
+          <div class="field">
+            <label for="c-plan">对应套餐</label>
+            <select id="c-plan" name="plan_id" required>
+              <option value="">请选择套餐…</option>
+              {{range .Data.Plans}}
+              <option value="{{.ID}}">{{.Name}} — {{.CPU}}C/{{.MemoryMB}}M/{{.DiskGB}}G · {{modeText .Mode}}</option>
+              {{end}}
+            </select>
+          </div>
+          <div class="field">
+            <label for="c-node">指定节点（可选）</label>
+            <select id="c-node" name="node_id">
+              <option value="0">自动选择空闲节点</option>
+              {{range .Data.Nodes}}
+              <option value="{{.ID}}">{{.Name}}{{if .Region}} · {{.Region}}{{end}}</option>
+              {{end}}
+            </select>
+          </div>
+          <div class="field">
+            <label for="c-count">生成数量</label>
+            <input id="c-count" type="number" name="count" value="10" min="1" max="500" required>
+          </div>
+          <div class="field">
+            <label for="c-valid">激活码有效期（天）</label>
+            <input id="c-valid" type="number" name="valid_days" value="0" min="0" max="3650">
+            <p class="hint">0 表示激活码本身永不过期。</p>
+          </div>
+          <div class="field span2">
+            <label for="c-note">备注</label>
+            <input id="c-note" type="text" name="note" maxlength="100" placeholder="例如：双十一活动">
+          </div>
+        </div>
+        <button class="btn btn-primary mt-1" type="submit">生成</button>
+      </form>
+    </div>
+  </details>
+
+  <form method="get" action="/admin/codes" class="flex gap-1 flex-wrap items-center mb-2">
+    <input type="text" name="batch" value="{{.Data.Batch}}" maxlength="32"
+           placeholder="按批次筛选" style="max-width:220px">
+    <label class="check">
+      <input type="checkbox" name="unused" value="1" {{if .Data.OnlyUnused}}checked{{end}}>
+      <span>仅看未使用</span>
+    </label>
+    <button class="btn btn-sm" type="submit">筛选</button>
+    <a class="btn btn-ghost btn-sm" href="/admin/codes">清除</a>
+  </form>
+
+  {{if .Data.Codes}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>激活码</th><th>套餐</th><th>批次</th><th>状态</th><th>使用者</th><th>备注</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Codes}}
+        <tr>
+          <td><code class="mono">{{.Code}}</code></td>
+          <td>{{.PlanName}}</td>
+          <td class="dim" style="font-size:.8rem">{{.Batch}}</td>
+          <td>
+            {{if .UsedBy}}<span class="badge off">已使用</span>
+            {{else}}<span class="badge ok">未使用</span>{{end}}
+          </td>
+          <td class="dim">{{if .UserEmail}}{{.UserEmail}}<div class="muted" style="font-size:.78rem">{{fmtTime .UsedAt}}</div>{{else}}—{{end}}</td>
+          <td class="dim" style="font-size:.82rem">{{.Note}}</td>
+          <td class="t-right t-actions">
+            <button class="btn btn-sm" type="button" data-copy="{{.Code}}">复制</button>
+            {{if not .UsedBy}}
+            <form method="post" action="/admin/codes/delete" data-confirm="删除该激活码？">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-sm btn-danger" type="submit">删除</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">🎟️</div>
+    <p>还没有激活码。展开上方表单批量生成。</p>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

@@ -1,0 +1,130 @@
+{{define "admin_users.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>用户管理</h1>
+    <p>共 {{len .Data.Users}} 个账号。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  <details class="panel">
+    <summary>充值 API</summary>
+    <div class="body">
+      {{if .Data.APIKey}}
+      <p class="hint">调用方以 <code>Authorization: Bearer &lt;密钥&gt;</code> 访问。此密钥可给用户余额充值，请像保管密码一样保管。</p>
+      <div class="copy">
+        <code>{{.Data.APIKey}}</code>
+        <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+      </div>
+      <pre class="mono" style="font-size:.78rem;overflow-x:auto;margin:.8em 0">POST /api/v1/recharge
+Authorization: Bearer &lt;密钥&gt;
+Content-Type: application/json
+
+{"email":"user@example.com","amount_cents":1000,"ref":"order-123","note":"alipay"}
+
+→ {"ok":true,"user_id":1,"balance_cents":1000}
+ref 为外部订单号：同一 ref 重复提交不会重复入账（幂等）。
+查询余额：GET /api/v1/balance?email=user@example.com</pre>
+      {{else}}
+      <p class="hint">尚未生成 API 密钥，充值 API 处于关闭状态。生成后可供支付回调等外部系统调用。</p>
+      {{end}}
+      <form method="post" action="/admin/apikey"
+            {{if .Data.APIKey}}data-confirm="重新生成将使旧密钥立即失效，确定？"{{end}}>
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <button class="btn btn-sm" type="submit">{{if .Data.APIKey}}重新生成密钥{{else}}生成密钥{{end}}</button>
+      </form>
+    </div>
+  </details>
+
+  {{if .Data.NewPassword}}
+  <div class="card mb-2">
+    <h3>新密码</h3>
+    <p class="hint" style="margin-top:-.4em">请转交给用户，此密码仅显示一次。</p>
+    <div class="copy">
+      <code>{{.Data.NewPassword}}</code>
+      <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+    </div>
+  </div>
+  {{end}}
+
+  {{if .Data.Users}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>邮箱</th><th>角色</th><th>状态</th><th>余额</th><th>注册时间</th><th>上次登录</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Users}}
+        <tr>
+          <td><b>{{.Email}}</b></td>
+          <td>{{if .IsAdmin}}<span class="tag">管理员</span>{{else}}<span class="dim">普通用户</span>{{end}}</td>
+          <td>
+            {{if eq .Status "active"}}<span class="badge ok">正常</span>
+            {{else}}<span class="badge bad">已停用</span>{{end}}
+          </td>
+          <td class="mono nowrap">{{money .BalanceCents}} 元</td>
+          <td class="dim nowrap">{{fmtTime .CreatedAt}}</td>
+          <td class="dim nowrap">
+            {{since .LastLoginAt}}
+            {{if .LastLoginIP}}<div class="mono muted" style="font-size:.76rem">{{.LastLoginIP}}</div>{{end}}
+          </td>
+          <td class="t-right t-actions">
+            {{if ne .ID $.User.ID}}
+              {{if .IsAdmin}}
+              <form method="post" action="/admin/users" data-confirm="取消 {{.Email}} 的管理员权限？其会话将全部失效。">
+                <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <input type="hidden" name="action" value="demote">
+                <button class="btn btn-sm" type="submit">撤管</button>
+              </form>
+              {{else}}
+              <form method="post" action="/admin/users" data-confirm="将 {{.Email}} 设为管理员？TA 将拥有后台全部权限。">
+                <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <input type="hidden" name="action" value="promote">
+                <button class="btn btn-sm" type="submit">设为管理员</button>
+              </form>
+              {{end}}
+              {{if eq .Status "active"}}
+              <form method="post" action="/admin/users" data-confirm="停用 {{.Email}}？其所有会话将立即失效。">
+                <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <input type="hidden" name="action" value="suspend">
+                <button class="btn btn-sm btn-danger" type="submit">停用</button>
+              </form>
+              {{else}}
+              <form method="post" action="/admin/users">
+                <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <input type="hidden" name="action" value="activate">
+                <button class="btn btn-sm" type="submit">恢复</button>
+              </form>
+              {{end}}
+            {{end}}
+            <form method="post" action="/admin/users" data-confirm="重置 {{.Email}} 的密码？">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <input type="hidden" name="action" value="reset">
+              <button class="btn btn-sm" type="submit">重置密码</button>
+            </form>
+            <form method="post" action="/admin/users/balance"
+                  data-confirm="调整 {{.Email}} 的余额？正数充值、负数扣款。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <input type="text" name="amount" required placeholder="±元" class="mono"
+                     style="width:72px;padding:6px 8px" inputmode="decimal" aria-label="调整金额">
+              <button class="btn btn-sm" type="submit">调余额</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

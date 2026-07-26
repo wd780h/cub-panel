@@ -1,0 +1,96 @@
+{{define "home.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main>
+  <section class="wrap hero">
+    <span class="pill"><span class="dot"></span>{{T "开源的 Incus 容器与虚拟机面板"}}</span>
+    <h1>{{T "自助创建、计费与管理"}}<br><span class="grad">Incus + KVM</span></h1>
+    <p>{{T "一套轻量的自助面板，用来创建、售卖与管理基于 Incus 的容器和 KVM 虚拟机。开源、自托管、无外部依赖。"}}</p>
+    <div class="hero-cta">
+      {{if .User}}
+        <a class="btn btn-primary" href="/app/deploy">{{T "创建实例"}}</a>
+        <a class="btn" href="/app">{{T "我的实例"}}</a>
+      {{else}}
+        {{if .Signup}}<a class="btn btn-primary" href="/register">{{T "免费注册"}}</a>{{end}}
+        <a class="btn" href="/login">{{T "登录控制台"}}</a>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="wrap section">
+    <div class="grid grid-4">
+      <div class="card feature">
+        <div class="ico">⚡</div>
+        <h3>{{T "秒级交付"}}</h3>
+        <p>{{T "镜像本地缓存，兑换或下单后自动创建、启动并配置网络。"}}</p>
+      </div>
+      <div class="card feature">
+        <div class="ico">🌐</div>
+        <h3>{{T "灵活网络"}}</h3>
+        <p>{{T "NAT 端口转发、独立 IPv6、仅 IPv6，按套餐选择，重启不丢。"}}</p>
+      </div>
+      <div class="card feature">
+        <div class="ico">🎚️</div>
+        <h3>{{T "资源可控"}}</h3>
+        <p>{{T "CPU、内存、硬盘、流量与带宽逐项限制，支持弹性升级。"}}</p>
+      </div>
+      <div class="card feature">
+        <div class="ico">🖥️</div>
+        <h3>{{T "网页终端"}}</h3>
+        <p>{{T "内置串行控制台，忘记密码或网络异常也能直接进入系统。"}}</p>
+      </div>
+    </div>
+  </section>
+
+  {{if .Data.Plans}}
+  <section class="wrap section">
+    <div class="page-head center">
+      <h2>{{T "可选套餐"}}</h2>
+    </div>
+    <div class="grid grid-3">
+      {{range .Data.Plans}}
+      <div class="card plan">
+        <div class="plan-name">{{.Name}}</div>
+        <div class="plan-desc">{{.Description}}</div>
+        <ul class="plan-specs">
+          <li><span>{{T "类型"}}</span><b>{{instTypeText .InstanceType}}</b></li>
+          <li><span>CPU</span><b>{{.CPU}}</b></li>
+          <li><span>{{T "内存"}}</span><b>{{mb .MemoryMB}}</b></li>
+          <li><span>{{T "硬盘"}}</span><b>{{gb .DiskGB}}</b></li>
+          <li><span>{{T "网络"}}</span><b>{{modeText .Mode}}</b></li>
+          <li><span>{{T "时长"}}</span><b>{{if .DurationDays}}{{.DurationDays}} {{T "天"}}{{else}}{{T "永久"}}{{end}}</b></li>
+          <li><span>{{T "流量"}}</span><b>{{if .TrafficGB}}{{.TrafficGB}} GB/月{{else}}{{T "不限"}}{{end}}</b></li>
+          <li><span>{{T "带宽"}}</span><b>{{if or .RateDownMbps .RateUpMbps}}↓{{.RateDownMbps}} / ↑{{.RateUpMbps}} Mbps{{else}}{{T "不限"}}{{end}}</b></li>
+          {{if .PriceCents}}<li><span>{{T "价格"}}</span><b>{{money .PriceCents}} {{T "元"}}</b></li>{{end}}
+        </ul>
+        <a class="btn btn-primary btn-block" href="{{if $.User}}/app/deploy{{else}}/login?next=%2Fapp%2Fdeploy{{end}}">{{T "查看创建"}}</a>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
+  {{if .Data.Nodes}}
+  <section class="wrap section">
+    <div class="page-head center">
+      <h2>{{T "节点状态"}}</h2>
+      <p>{{T "实时容量与在线情况。"}}</p>
+    </div>
+    <div class="grid grid-4">
+      {{range .Data.Nodes}}
+      <div class="card stat">
+        <div class="flex items-center justify-between gap-1 mb-1">
+          <div class="k mb-0">{{.Name}}</div>
+          <span class="badge {{if .Online}}ok{{else}}off{{end}}">{{if .Online}}{{T "在线"}}{{else}}{{T "离线"}}{{end}}</span>
+        </div>
+        <div class="v">{{.Used}}<span class="muted" style="font-size:1rem"> / {{.Cap}}</span></div>
+        <div class="sub">{{if .Region}}{{.Region}}{{else}}—{{end}}</div>
+        <div class="meter"><i style="width:{{pct .Used .Cap}}%"></i></div>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

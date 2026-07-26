@@ -1,0 +1,97 @@
+{{define "admin_home.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>管理后台</h1>
+    <p>集群概览与最近操作。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  <div class="grid grid-4 mb-2">
+    <div class="card stat">
+      <div class="k">节点</div>
+      <div class="v">{{.Data.NodeOnline}}<span class="muted" style="font-size:1rem"> / {{len .Data.Nodes}}</span></div>
+      <div class="sub">在线 / 总数</div>
+    </div>
+    <div class="card stat">
+      <div class="k">实例</div>
+      <div class="v">{{.Data.Instances}}</div>
+      <div class="sub">容量 {{.Data.Used}} / {{.Data.Capacity}}</div>
+      <div class="meter"><i style="width:{{pct .Data.Used .Data.Capacity}}%"></i></div>
+    </div>
+    <div class="card stat">
+      <div class="k">用户</div>
+      <div class="v">{{.Data.Users}}</div>
+      <div class="sub">注册账号总数</div>
+    </div>
+    <div class="card stat">
+      <div class="k">激活码</div>
+      <div class="v">{{.Data.CodesUnused}}</div>
+      <div class="sub">未使用 / 共 {{.Data.CodesTotal}}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="card-title"><h2>节点状态</h2><a class="btn btn-sm" href="/admin/nodes">管理节点</a></div>
+    {{if .Data.Nodes}}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>名称</th><th>地区</th><th>状态</th><th>用量</th><th>IPv6</th><th>最近检测</th></tr>
+        </thead>
+        <tbody>
+          {{range .Data.Nodes}}
+          <tr>
+            <td><b>{{.Name}}</b>{{if not .Enabled}} <span class="tag">已停用</span>{{end}}</td>
+            <td class="dim">{{if .Region}}{{.Region}}{{else}}—{{end}}</td>
+            <td>
+              {{if eq .LastStatus "ok"}}<span class="badge ok">在线</span>
+              {{else if .LastStatus}}<span class="badge bad">异常</span>
+              {{else}}<span class="badge off">未检测</span>{{end}}
+            </td>
+            <td class="mono">{{.InstanceCount}} / {{.MaxInstances}}</td>
+            <td>{{if .V6Enabled}}<span class="tag">{{.V6CIDR}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+            <td class="dim">{{since .LastSeenAt}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="card empty">
+      <div class="big">🖧</div>
+      <p>还没有添加任何节点。</p>
+      <a class="btn btn-primary" href="/admin/nodes">添加第一个节点</a>
+    </div>
+    {{end}}
+  </div>
+
+  <div class="section">
+    <div class="card-title"><h2>最近操作</h2><a class="btn btn-sm" href="/admin/audit">全部日志</a></div>
+    {{if .Data.Audit}}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>时间</th><th>操作者</th><th>动作</th><th>详情</th><th>IP</th></tr></thead>
+        <tbody>
+          {{range .Data.Audit}}
+          <tr>
+            <td class="dim nowrap">{{fmtTime .CreatedAt}}</td>
+            <td>{{if .Actor}}{{.Actor}}{{else}}系统{{end}}</td>
+            <td><span class="tag">{{.Action}}</span></td>
+            <td class="dim">{{.Detail}}</td>
+            <td class="mono dim">{{.IP}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="card empty"><p>暂无操作记录。</p></div>
+    {{end}}
+  </div>
+</main>
+
+{{template "foot" .}}{{end}}

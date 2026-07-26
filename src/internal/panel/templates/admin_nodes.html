@@ -1,0 +1,260 @@
+{{define "admin_nodes.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>节点管理</h1>
+    <p>每个节点是一台运行 cub-agent 的 Incus 宿主机。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  <details class="panel" id="nodePanel">
+    <summary>添加 / 编辑节点</summary>
+    <div class="body">
+      <form method="post" action="/admin/nodes" id="nodeForm">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input type="hidden" name="id" value="0">
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="n-name">节点名</label>
+            <input id="n-name" type="text" name="name" required maxlength="32" placeholder="hk-01">
+            <p class="hint">小写字母、数字与连字符。</p>
+          </div>
+          <div class="field">
+            <label for="n-region">地区标签</label>
+            <input id="n-region" type="text" name="region" maxlength="32" placeholder="香港 · CN2">
+          </div>
+
+          <div class="field span2">
+            <label for="n-endpoint">Agent 地址</label>
+            <input id="n-endpoint" type="text" name="endpoint" required maxlength="200"
+                   placeholder="https://10.0.0.5:8788" class="mono">
+            <p class="hint">cub-agent 的监听地址（默认 HTTPS），建议走内网或 WireGuard。</p>
+          </div>
+
+          <div class="field span2">
+            <label for="n-certfp">证书指纹（SHA-256）</label>
+            <input id="n-certfp" type="text" name="cert_fp" maxlength="120"
+                   placeholder="install-agent.sh 打印的 64 位指纹" class="mono">
+            <p class="hint">钉扎 agent 的自签证书，防止中间人。留空表示只加密不校验（不推荐）。</p>
+          </div>
+
+          <div class="field span2">
+            <label for="n-secret">共享密钥（CUB_AGENT_SECRET）</label>
+            <input id="n-secret" type="text" name="secret" maxlength="200"
+                   placeholder="至少 32 位随机字符串" class="mono">
+            <p class="hint">须与该节点 agent 的 CUB_AGENT_SECRET 完全一致。编辑时留空表示保持不变。</p>
+          </div>
+
+          <div class="field">
+            <label for="n-pool">存储池</label>
+            <input id="n-pool" type="text" name="storage_pool" maxlength="32" value="default" placeholder="default">
+          </div>
+          <div class="field">
+            <label for="n-max">最大实例数</label>
+            <input id="n-max" type="number" name="max_instances" min="1" max="100000" value="50">
+          </div>
+
+          <div class="field">
+            <label for="n-bridge">NAT 网桥</label>
+            <input id="n-bridge" type="text" name="nat_bridge" maxlength="15" value="lxdbr0" class="mono">
+          </div>
+          <div class="field">
+            <label for="n-subnet">NAT 子网 (CIDR)</label>
+            <input id="n-subnet" type="text" name="nat_subnet" maxlength="43" value="10.180.0.0/24" class="mono">
+            <p class="hint">须与该网桥的 ipv4.address 网段一致。</p>
+          </div>
+
+          <div class="field span2">
+            <label class="check">
+              <input type="checkbox" name="nat_managed" value="1" checked>
+              <span>网桥由 Incus 管理（默认，setup 脚本创建的 lxdbr0）</span>
+            </label>
+            <p class="hint">共用现有网桥（如 docker0、br0）时取消勾选：IP 将在容器内静态配置，
+              端口转发改走用户态代理。</p>
+          </div>
+          <div class="field">
+            <label for="n-natgw">NAT 网关（非托管网桥）</label>
+            <input id="n-natgw" type="text" name="nat_gw" maxlength="15" placeholder="留空取网段首地址" class="mono">
+            <p class="hint">仅非托管网桥需要，如 docker0 填 172.17.0.1。</p>
+          </div>
+          <div class="field">
+            <label for="n-natres">保留 IP 段</label>
+            <input id="n-natres" type="text" name="nat_reserved" maxlength="500"
+                   placeholder="172.17.0.1-172.17.0.99" class="mono">
+            <p class="hint">不参与分配的地址，逗号分隔，支持单个 IP 与区间（宿主机/Docker 已占用的段）。</p>
+          </div>
+          <div class="field span2">
+            <label for="n-dns">实例 DNS 服务器</label>
+            <input id="n-dns" type="text" name="dns" maxlength="200"
+                   placeholder="1.1.1.1 8.8.8.8" class="mono">
+            <p class="hint">写入该节点新实例的 resolv.conf（空格/逗号分隔，最多 8 个）。留空使用系统默认。</p>
+          </div>
+
+          <div class="field">
+            <label for="n-pmin">端口池起</label>
+            <input id="n-pmin" type="number" name="port_min" min="1024" max="65535" value="20000">
+          </div>
+          <div class="field">
+            <label for="n-pmax">端口池止</label>
+            <input id="n-pmax" type="number" name="port_max" min="1024" max="65535" value="60000">
+          </div>
+          <div class="field">
+            <label for="n-peach">每实例端口数</label>
+            <input id="n-peach" type="number" name="ports_each" min="0" max="500" value="10">
+            <p class="hint">除 SSH 端口外额外分配的连续端口段长度，0 表示不分配。</p>
+          </div>
+
+          <div class="field span2" style="padding-top:8px;border-top:1px solid var(--line-soft)">
+            <label class="check">
+              <input type="checkbox" name="v6_enabled" value="1">
+              <span>启用独立 IPv6</span>
+            </label>
+          </div>
+          <div class="field">
+            <label for="n-v6br">IPv6 网桥</label>
+            <input id="n-v6br" type="text" name="v6_bridge" maxlength="15" placeholder="br0" class="mono">
+            <p class="hint">承载公网 IPv6 的网桥，可与 NAT 网桥不同。</p>
+          </div>
+          <div class="field">
+            <label for="n-v6cidr">IPv6 段 (CIDR)</label>
+            <input id="n-v6cidr" type="text" name="v6_cidr" maxlength="60"
+                   placeholder="2a01:4f8:1:2::/64" class="mono">
+          </div>
+          <div class="field">
+            <label for="n-v6gw">IPv6 网关</label>
+            <input id="n-v6gw" type="text" name="v6_gw" maxlength="45"
+                   placeholder="2a01:4f8:1:2::1" class="mono">
+          </div>
+
+          <div class="field span2" style="padding-top:8px;border-top:1px solid var(--line-soft)">
+            <label class="check">
+              <input type="checkbox" name="v4_enabled" value="1">
+              <span>启用独立公网 IPv4</span>
+            </label>
+            <p class="hint">从下面的公网 v4 段为实例分配一个独立公网 IPv4（在容器内静态配置）。</p>
+          </div>
+          <div class="field">
+            <label for="n-v4br">IPv4 网桥</label>
+            <input id="n-v4br" type="text" name="v4_bridge" maxlength="15" placeholder="br-pub" class="mono">
+            <p class="hint">承载公网 IPv4 的网桥。</p>
+          </div>
+          <div class="field">
+            <label for="n-v4cidr">公网 v4 段 (CIDR)</label>
+            <input id="n-v4cidr" type="text" name="v4_cidr" maxlength="43"
+                   placeholder="203.0.113.0/28" class="mono">
+          </div>
+          <div class="field">
+            <label for="n-v4gw">IPv4 网关</label>
+            <input id="n-v4gw" type="text" name="v4_gw" maxlength="15"
+                   placeholder="203.0.113.1" class="mono">
+          </div>
+
+          <div class="field span2">
+            <label class="check">
+              <input type="checkbox" name="kvm_enabled" value="1">
+              <span>支持 KVM 虚拟机 <span class="tag">Beta</span></span>
+            </label>
+            <p class="hint">需要该机有 /dev/kvm（独服或开了嵌套虚拟化）且装好 qemu：
+              <code>KVM=1 sh ./setup-lxd-node.sh</code>。KVM 套餐只会调度到勾选了此项的节点。</p>
+          </div>
+          <div class="field span2">
+            <label class="check">
+              <input type="checkbox" name="enabled" value="1" checked>
+              <span>启用该节点（允许分配新实例）</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="btn-row mt-1">
+          <button class="btn btn-primary" type="submit">保存节点</button>
+          <a class="btn btn-ghost" href="/admin/nodes">重置表单</a>
+        </div>
+      </form>
+    </div>
+  </details>
+
+  {{if .Data.Nodes}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>名称</th><th>地址</th><th>状态</th><th>用量</th><th>NAT</th><th>IPv6</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Nodes}}
+        <tr id="node-{{.ID}}"
+            data-f-id="{{.ID}}"
+            data-f-name="{{.Name}}"
+            data-f-region="{{.Region}}"
+            data-f-endpoint="{{.Endpoint}}"
+            data-f-cert_fp="{{.CertFP}}"
+            data-f-storage_pool="{{.StoragePool}}"
+            data-f-nat_bridge="{{.NATBridge}}"
+            data-f-nat_subnet="{{.NATSubnet}}"
+            data-f-nat_managed="{{if .NATManaged}}1{{else}}0{{end}}"
+            data-f-nat_gw="{{.NATGW}}"
+            data-f-nat_reserved="{{.NATReserved}}"
+            data-f-dns="{{.DNS}}"
+            data-f-port_min="{{.PortMin}}"
+            data-f-port_max="{{.PortMax}}"
+            data-f-ports_each="{{.PortsEach}}"
+            data-f-v6_enabled="{{if .V6Enabled}}1{{else}}0{{end}}"
+            data-f-v6_bridge="{{.V6Bridge}}"
+            data-f-v6_cidr="{{.V6CIDR}}"
+            data-f-v6_gw="{{.V6GW}}"
+            data-f-v4_enabled="{{if .V4Enabled}}1{{else}}0{{end}}"
+            data-f-v4_bridge="{{.V4Bridge}}"
+            data-f-v4_cidr="{{.V4CIDR}}"
+            data-f-v4_gw="{{.V4GW}}"
+            data-f-kvm_enabled="{{if .KVMEnabled}}1{{else}}0{{end}}"
+            data-f-max_instances="{{.MaxInstances}}"
+            data-f-enabled="{{if .Enabled}}1{{else}}0{{end}}">
+          <td>
+            <b>{{.Name}}</b>
+            {{if .KVMEnabled}}<span class="tag">KVM</span>{{end}}
+            {{if not .Enabled}}<span class="tag">已停用</span>{{end}}
+            <div class="muted" style="font-size:.8rem">{{.Region}}</div>
+          </td>
+          <td class="mono dim">{{.Endpoint}}</td>
+          <td>
+            {{if eq .LastStatus "ok"}}
+              <span class="badge ok" data-node-status="{{.ID}}">在线</span>
+            {{else if .LastStatus}}
+              <span class="badge bad" data-node-status="{{.ID}}" title="{{.LastStatus}}">异常</span>
+            {{else}}
+              <span class="badge off" data-node-status="{{.ID}}">未检测</span>
+            {{end}}
+          </td>
+          <td class="mono">{{.InstanceCount}} / {{.MaxInstances}}</td>
+          <td class="mono dim">{{.NATBridge}}{{if not .NATManaged}} <span class="tag">共用</span>{{end}}<br><span style="font-size:.8em">{{.NATSubnet}}</span></td>
+          <td class="mono dim">
+            {{if .V6Enabled}}{{.V6Bridge}}<br><span style="font-size:.8em">{{.V6CIDR}}</span>{{else}}—{{end}}
+          </td>
+          <td class="t-right t-actions">
+            <button class="btn btn-sm" type="button" data-probe="{{.ID}}">检测</button>
+            <button class="btn btn-sm" type="button"
+                    data-edit="node-{{.ID}}" data-target="nodeForm">编辑</button>
+            <form method="post" action="/admin/nodes/delete"
+                  data-confirm="确定删除节点 {{.Name}}？该节点必须没有任何实例。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-sm btn-danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">🖧</div>
+    <p>还没有节点。展开上方表单添加第一个。</p>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

@@ -1,0 +1,63 @@
+{{define "recharge.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>充值</h1>
+    <p>当前余额 <b>{{money .Data.Balance}} 元</b>。充值后可在「创建实例」用余额开通。</p>
+  </div>
+
+  {{template "flash" .}}
+
+  {{if .Data.Methods}}
+  <div class="card" style="max-width:520px">
+    <form method="post" action="/app/recharge">
+      <input type="hidden" name="_csrf" value="{{.CSRF}}">
+      <div class="field">
+        <label for="amt">充值金额（元）</label>
+        <input id="amt" type="text" name="amount" inputmode="decimal" required placeholder="例如 50" class="mono">
+        <p class="hint">1 – 100000 元。</p>
+      </div>
+      <div class="field">
+        <label>支付方式</label>
+        <div class="btn-row" style="gap:.8em;flex-wrap:wrap">
+          {{range .Data.Methods}}
+          <label class="check"><input type="radio" name="method" value="{{.}}" required><span>{{payText .}}</span></label>
+          {{end}}
+        </div>
+        {{if .Data.USDTRate}}<p class="hint">USDT 汇率：1 USDT = {{money .Data.USDTRate}} 元。</p>{{end}}
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">去支付</button>
+    </form>
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">💰</div>
+    <p>管理员尚未配置任何支付方式。可联系管理员开通，或使用激活码。</p>
+  </div>
+  {{end}}
+
+  {{if .Data.Orders}}
+  <h2 class="section-title">最近充值订单</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>订单号</th><th>金额</th><th>方式</th><th>状态</th><th>时间</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Orders}}
+        <tr>
+          <td class="mono">{{.OrderNo}}</td>
+          <td class="mono nowrap">{{money .AmountCents}} 元</td>
+          <td>{{payText .Method}}</td>
+          <td>{{if eq .Status "paid"}}<span class="badge ok">已到账</span>{{else if eq .Status "expired"}}<span class="badge off">已过期</span>{{else}}<span class="badge wait">待支付</span>{{if eq .Method "usdt"}} <a href="/app/recharge/usdt/{{.ID}}">去支付</a>{{end}}{{end}}</td>
+          <td class="dim nowrap">{{fmtTime .CreatedAt}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

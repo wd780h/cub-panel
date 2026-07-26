@@ -1,0 +1,34 @@
+#!/sbin/openrc-run
+# OpenRC service for the cub-panel master.
+
+name="cub-panel"
+description="cub-panel (master)"
+
+: ${PANEL_HOME:=/opt/cub-panel}
+
+command="${PANEL_HOME}/bin/cub-panel"
+command_background=true
+command_user="root:root"
+directory="${PANEL_HOME}"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner root:root --mode 0750 "${PANEL_HOME}/data"
+	checkpath --file --owner root:root --mode 0640 "${output_log}"
+
+	if [ ! -f "${PANEL_HOME}/cub-panel.env" ]; then
+		eerror "missing ${PANEL_HOME}/cub-panel.env"
+		return 1
+	fi
+	# Export the operator's configuration into the service environment.
+	set -a
+	. "${PANEL_HOME}/cub-panel.env"
+	set +a
+}

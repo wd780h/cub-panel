@@ -1,0 +1,238 @@
+{{define "admin_plans.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>套餐管理</h1>
+    <p>套餐决定激活码开通出来的实例规格。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  <details class="panel">
+    <summary>添加 / 编辑套餐</summary>
+    <div class="body">
+      <form method="post" action="/admin/plans" id="planForm">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input type="hidden" name="id" value="0">
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="p-name">套餐名</label>
+            <input id="p-name" type="text" name="name" required maxlength="40" placeholder="入门型 1C512M">
+          </div>
+          <div class="field">
+            <label for="p-sort">排序</label>
+            <input id="p-sort" type="number" name="sort_order" value="0" min="-999" max="999">
+          </div>
+
+          <div class="field span2">
+            <label for="p-desc">描述</label>
+            <input id="p-desc" type="text" name="description" maxlength="200" placeholder="适合轻量应用与学习用途">
+          </div>
+
+          <div class="field">
+            <label for="p-cpu">CPU 核数</label>
+            <input id="p-cpu" type="number" name="cpu" value="1" min="1" max="64" required>
+          </div>
+          <div class="field">
+            <label for="p-mem">内存 (MB)</label>
+            <input id="p-mem" type="number" name="memory_mb" value="512" min="64" max="262144" required>
+          </div>
+          <div class="field">
+            <label for="p-disk">硬盘 (GB)</label>
+            <input id="p-disk" type="number" name="disk_gb" value="10" min="1" max="4096" required>
+          </div>
+          <div class="field">
+            <label for="p-days">有效期（天）</label>
+            <input id="p-days" type="number" name="duration_days" value="30" min="0" max="3650">
+            <p class="hint">0 表示永不过期。</p>
+          </div>
+          <div class="field">
+            <label for="p-price">价格（元）</label>
+            <input id="p-price" type="text" name="price" inputmode="decimal" placeholder="0" class="mono">
+            <p class="hint">0 或留空表示仅可用激活码开通。</p>
+          </div>
+
+          <div class="field">
+            <label for="p-itype">实例类型</label>
+            <select id="p-itype" name="instance_type">
+              <option value="container">容器（推荐）</option>
+              <option value="vm">KVM 虚拟机 (Beta)</option>
+            </select>
+            <p class="hint">KVM 需要节点开启「支持 KVM」且有 /dev/kvm。虚拟机内存全额预留，容器特性开关对 VM 无效。</p>
+          </div>
+          <div class="field">
+            <label for="p-mode">网络模式</label>
+            <select id="p-mode" name="mode">
+              <option value="nat">NAT + 端口转发</option>
+              <option value="ipv6">NAT + 独立 IPv6</option>
+              <option value="ipv6only">仅独立 IPv6</option>
+              <option value="ipv4">NAT + 独立公网 IPv4</option>
+              <option value="ipv4only">仅独立公网 IPv4</option>
+              <option value="ipv4v6">独立公网 IPv4 + 独立 IPv6</option>
+            </select>
+            <p class="hint">带「独立公网 IPv4/IPv6」的模式只会调度到已配置对应地址池的节点。</p>
+          </div>
+          <div class="field">
+            <label class="check" style="margin-top:26px">
+              <input type="checkbox" name="enabled" value="1" checked>
+              <span>上架该套餐</span>
+            </label>
+          </div>
+
+          <div class="field">
+            <label for="p-traffic">月流量限额 (GB)</label>
+            <input id="p-traffic" type="number" name="traffic_gb" value="0" min="0" max="1000000">
+            <p class="hint">0 表示不限流量。超限自动停机，每 30 天清零。</p>
+          </div>
+          <div class="field">
+            <label for="p-tmode">流量计费方向</label>
+            <select id="p-tmode" name="traffic_mode">
+              <option value="both">双向（上行 + 下行）</option>
+              <option value="up">仅上行（出流量）</option>
+              <option value="down">仅下行（入流量）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="p-rdown">下行带宽 (Mbps)</label>
+            <input id="p-rdown" type="number" name="rate_down_mbps" value="0" min="0" max="100000">
+            <p class="hint">0 表示不限速。</p>
+          </div>
+          <div class="field">
+            <label for="p-rup">上行带宽 (Mbps)</label>
+            <input id="p-rup" type="number" name="rate_up_mbps" value="0" min="0" max="100000">
+            <p class="hint">0 表示不限速。</p>
+          </div>
+
+          <div class="field span2">
+            <label for="p-extrabr">附加网卡网桥</label>
+            <input id="p-extrabr" type="text" name="extra_bridges" maxlength="200" class="mono"
+                   placeholder="br-lan, br-priv">
+            <p class="hint">逗号分隔，为实例额外挂网卡（多网卡）。网桥须在各节点上已存在。</p>
+          </div>
+          <div class="field span2">
+            <label for="p-v4pool">内网 IP 段限制</label>
+            <input id="p-v4pool" type="text" name="v4_pool" maxlength="200" class="mono"
+                   placeholder="10.180.0.100-10.180.0.200">
+            <p class="hint">NAT 内网 IP 只从此范围分配（须在节点 NAT 网段以内），逗号分隔多段。留空 = 整个网段。</p>
+          </div>
+          <div class="field span2">
+            <label class="check">
+              <input type="checkbox" name="keep_source_ip" value="1" checked>
+              <span>NAT 端口转发显示真实源 IP（DNAT）</span>
+            </label>
+            <p class="hint">勾选：容器内看到访客真实 IP（DNAT）。取消：走用户态代理，源 IP 显示为宿主机（隐藏访客 IP）。</p>
+          </div>
+
+          <div class="field span2" style="padding-top:8px;border-top:1px solid var(--line-soft)">
+            <label>特性开关</label>
+            <div class="btn-row" style="gap:.6em 1.2em;flex-wrap:wrap">
+              <label class="check"><input type="checkbox" name="feat_tun" value="1"><span>TUN/TAP（容器）</span></label>
+              <label class="check"><input type="checkbox" name="feat_fuse" value="1"><span>FUSE（容器）</span></label>
+              <label class="check"><input type="checkbox" name="feat_privileged" value="1"><span>特权（容器）</span></label>
+              <label class="check"><input type="checkbox" name="feat_nesting" value="1"><span>嵌套（容器/VM）</span></label>
+              <label class="check"><input type="checkbox" name="feat_aes" value="1"><span>AES-NI（VM）</span></label>
+              <label class="check"><input type="checkbox" name="feat_cpuhide" value="1"><span>CPU 伪装（VM）</span></label>
+            </div>
+            <p class="hint">⚠ 特权容器 root≈宿主机 root。VM 类勾选（嵌套虚拟化 / AES-NI 透传 / 隐藏 hypervisor）仅对 KVM 生效，容器类仅对容器生效。</p>
+          </div>
+
+          <div class="field span2">
+            <label>可选系统镜像</label>
+            {{if .Data.CachedImages}}
+            <div class="btn-row" style="gap:.4em 1.1em;flex-wrap:wrap">
+              {{range .Data.CachedImages}}
+              <label class="check"><input type="checkbox" name="images" value="{{.Alias}}"><span class="mono">{{.Alias}}</span>{{if .Container}}<span class="badge ok" style="margin-left:4px">容器</span>{{end}}{{if .VM}}<span class="badge ok" style="margin-left:2px">KVM</span>{{end}}</label>
+              {{end}}
+            </div>
+            <p class="hint">只列出节点上<b>已预热（缓存）</b>的镜像，保证开通秒级交付。角标表示已缓存的变体：
+              KVM 套餐请挑带 <b>KVM</b> 角标的镜像；缺 KVM 变体请先到 <a href="/admin/images">镜像管理</a> 点「预热 KVM」。</p>
+            {{else}}
+            <input type="text" name="images" maxlength="300"
+                   value="debian/12,alpine/3.22" class="mono">
+            <p class="hint">未检测到任何已缓存镜像（节点离线或还没预热）。可先手动填写逗号分隔的别名，
+              建议尽快到 <a href="/admin/images">镜像管理</a> 预热。</p>
+            {{end}}
+          </div>
+        </div>
+
+        <div class="btn-row mt-1">
+          <button class="btn btn-primary" type="submit">保存套餐</button>
+          <a class="btn btn-ghost" href="/admin/plans">重置表单</a>
+        </div>
+      </form>
+    </div>
+  </details>
+
+  {{if .Data.Plans}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>套餐</th><th>规格</th><th>网络</th><th>系统</th><th>价格</th><th>时长</th><th>状态</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Plans}}
+        <tr id="plan-{{.ID}}"
+            data-f-id="{{.ID}}"
+            data-f-name="{{.Name}}"
+            data-f-description="{{.Description}}"
+            data-f-cpu="{{.CPU}}"
+            data-f-memory_mb="{{.MemoryMB}}"
+            data-f-disk_gb="{{.DiskGB}}"
+            data-f-mode="{{.Mode}}"
+            data-f-instance_type="{{.InstanceType}}"
+            data-f-feat_tun="{{if .HasFeature "tun"}}1{{else}}0{{end}}"
+            data-f-feat_fuse="{{if .HasFeature "fuse"}}1{{else}}0{{end}}"
+            data-f-feat_nesting="{{if .HasFeature "nesting"}}1{{else}}0{{end}}"
+            data-f-feat_privileged="{{if .HasFeature "privileged"}}1{{else}}0{{end}}"
+            data-f-feat_aes="{{if .HasFeature "aes"}}1{{else}}0{{end}}"
+            data-f-feat_cpuhide="{{if .HasFeature "cpuhide"}}1{{else}}0{{end}}"
+            data-f-extra_bridges="{{.ExtraBridges}}"
+            data-f-v4_pool="{{.V4Pool}}"
+            data-f-keep_source_ip="{{if .KeepSourceIP}}1{{else}}0{{end}}"
+            data-f-images="{{.Images}}"
+            data-f-price="{{if .PriceCents}}{{money .PriceCents}}{{end}}"
+            data-f-traffic_gb="{{.TrafficGB}}"
+            data-f-traffic_mode="{{.TrafficMode}}"
+            data-f-rate_down_mbps="{{.RateDownMbps}}"
+            data-f-rate_up_mbps="{{.RateUpMbps}}"
+            data-f-duration_days="{{.DurationDays}}"
+            data-f-sort_order="{{.SortOrder}}"
+            data-f-enabled="{{if .Enabled}}1{{else}}0{{end}}">
+          <td>
+            <b>{{.Name}}</b>
+            <div class="muted" style="font-size:.8rem">{{.Description}}</div>
+          </td>
+          <td class="mono nowrap">{{.CPU}}C / {{.MemoryMB}}M / {{.DiskGB}}G
+            <div class="dim" style="font-size:.78rem">{{if .TrafficGB}}{{.TrafficGB}}G/月 · {{trafficModeText .TrafficMode}}{{else}}不限流量{{end}}
+              · {{if or .RateDownMbps .RateUpMbps}}↓{{.RateDownMbps}}/↑{{.RateUpMbps}} Mbps{{else}}不限速{{end}}</div></td>
+          <td>{{modeText .Mode}}{{if eq .InstanceType "vm"}}<br><span class="tag">KVM Beta</span>{{end}}{{range .FeatureList}}<br><span class="tag">{{featText .}}</span>{{end}}</td>
+          <td class="dim" style="font-size:.82rem">{{.Images}}</td>
+          <td class="mono nowrap">{{if .PriceCents}}{{money .PriceCents}} 元{{else}}—{{end}}</td>
+          <td class="nowrap">{{if .DurationDays}}{{.DurationDays}} 天{{else}}永久{{end}}</td>
+          <td>{{if .Enabled}}<span class="badge ok">已上架</span>{{else}}<span class="badge off">已下架</span>{{end}}</td>
+          <td class="t-right t-actions">
+            <button class="btn btn-sm" type="button" data-edit="plan-{{.ID}}" data-target="planForm">编辑</button>
+            <form method="post" action="/admin/plans/delete"
+                  data-confirm="删除套餐 {{.Name}}？其未使用的激活码也会一并删除。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-sm btn-danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">📋</div>
+    <p>还没有套餐。展开上方表单创建第一个。</p>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

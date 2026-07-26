@@ -1,0 +1,103 @@
+{{define "head"}}<!doctype html>
+<html lang="{{if eq .Lang "en"}}en{{else}}zh-CN{{end}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<script>
+/* Apply the saved theme before first paint to avoid a flash. No stored
+ * preference → follow the OS (handled by CSS media query). */
+(function(){try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+</script>
+{{if .CSRF}}<meta name="csrf" content="{{.CSRF}}">{{end}}
+<title>{{.Title}} · {{.Site}}</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#9729;</text></svg>">
+</head>
+<body>
+<div class="bg-orbs" aria-hidden="true"><span></span><span></span><span></span></div>
+{{end}}
+
+
+{{define "nav"}}
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-text">{{.Site}}</span>
+    </a>
+
+    <button class="nav-toggle" id="navToggle" aria-label="菜单" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+
+    <nav class="nav-links" id="navLinks">
+      <a href="/" {{if eq .Active "home"}}class="on"{{end}}>{{T "首页"}}</a>
+      {{if .User}}
+        <a href="/app" {{if eq .Active "dashboard"}}class="on"{{end}}>{{T "我的实例"}}</a>
+        <a href="/app/deploy" {{if or (eq .Active "deploy") (eq .Active "redeem")}}class="on"{{end}}>{{T "创建实例"}}</a>
+        <a href="/app/recharge" {{if eq .Active "recharge"}}class="on"{{end}}>{{T "充值"}}</a>
+        {{if .User.IsAdmin}}
+          <a href="/admin" {{if eq .Active "admin"}}class="on"{{end}}>{{T "管理后台"}}</a>
+        {{end}}
+        <div class="nav-user">
+          <a class="nav-email" href="/app/settings" title="{{T "账号设置"}}">{{.User.Email}}</a>
+          {{template "navtools" .}}
+          <form method="post" action="/logout" class="inline">
+            <input type="hidden" name="_csrf" value="{{.CSRF}}">
+            <button class="btn btn-ghost btn-sm" type="submit">{{T "退出"}}</button>
+          </form>
+        </div>
+      {{else}}
+        <a href="/login" {{if eq .Active "login"}}class="on"{{end}}>{{T "登录"}}</a>
+        {{if .Signup}}<a class="btn btn-primary btn-sm" href="/register">{{T "注册"}}</a>{{end}}
+        <div class="nav-user" style="border:none">{{template "navtools" .}}</div>
+      {{end}}
+    </nav>
+  </div>
+</header>
+{{end}}
+
+{{define "navtools"}}
+<button class="icon-btn" type="button" id="themeToggle" aria-label="{{T "切换主题"}}" title="{{T "切换主题"}}">
+  <span data-theme-icon>◐</span>
+</button>
+<a class="icon-btn" href="{{if eq .Lang "en"}}?lang=zh{{else}}?lang=en{{end}}" title="{{T "切换语言"}}" aria-label="{{T "切换语言"}}">{{if eq .Lang "en"}}中{{else}}EN{{end}}</a>
+{{end}}
+
+
+{{define "adminnav"}}
+<nav class="subnav">
+  <a href="/admin"            {{if eq .Active "admin"}}class="on"{{end}}>概览</a>
+  <a href="/admin/nodes"      {{if eq .Active "nodes"}}class="on"{{end}}>节点</a>
+  <a href="/admin/plans"      {{if eq .Active "plans"}}class="on"{{end}}>套餐</a>
+  <a href="/admin/images"     {{if eq .Active "images"}}class="on"{{end}}>镜像</a>
+  <a href="/admin/codes"      {{if eq .Active "codes"}}class="on"{{end}}>激活码</a>
+  <a href="/admin/instances"  {{if eq .Active "instances"}}class="on"{{end}}>实例</a>
+  <a href="/admin/users"      {{if eq .Active "users"}}class="on"{{end}}>用户</a>
+  <a href="/admin/orders"     {{if eq .Active "orders"}}class="on"{{end}}>订单</a>
+  <a href="/admin/settings"   {{if eq .Active "settings"}}class="on"{{end}}>设置</a>
+  <a href="/admin/audit"      {{if eq .Active "audit"}}class="on"{{end}}>日志</a>
+</nav>
+{{end}}
+
+
+{{define "flash"}}
+{{if .Notice}}<div class="alert alert-info" role="note" style="white-space:pre-wrap">📢 {{.Notice}}</div>{{end}}
+{{if .Error}}<div class="alert alert-bad" role="alert">{{.Error}}</div>{{end}}
+{{if .Flash}}<div class="alert alert-ok" role="status">{{.Flash}}</div>{{end}}
+{{end}}
+
+
+{{define "foot"}}
+<footer class="foot">
+  <div class="foot-inner">
+    <span>&copy; {{.Year}} {{.Site}}</span>
+    <span class="foot-sep">·</span>
+    <span>{{T "基于 Incus 容器技术"}}</span>
+  </div>
+</footer>
+<script src="/static/app.js" defer></script>
+</body>
+</html>
+{{end}}

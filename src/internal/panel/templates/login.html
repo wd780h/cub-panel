@@ -1,0 +1,32 @@
+{{define "login.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="auth-wrap">
+  <div class="card auth-card">
+    <h1>欢迎回来</h1>
+    <p class="dim">登录后即可管理你的 LXD 实例。</p>
+
+    {{template "flash" .}}
+
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{.Data.Next}}">
+      <div class="field">
+        <label for="email">邮箱</label>
+        <input id="email" type="email" name="email" value="{{.Data.Email}}"
+               autocomplete="username" required maxlength="254" placeholder="you@example.com">
+      </div>
+      <div class="field">
+        <label for="password">密码</label>
+        <input id="password" type="password" name="password"
+               autocomplete="current-password" required maxlength="128" placeholder="••••••••">
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">登录</button>
+    </form>
+
+    {{if .Signup}}
+    <p class="auth-alt">还没有账号？<a href="/register">立即注册</a></p>
+    {{end}}
+  </div>
+</main>
+
+{{template "foot" .}}{{end}}

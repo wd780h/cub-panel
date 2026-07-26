@@ -1,0 +1,16 @@
+{{define "error.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="auth-wrap">
+  <div class="card auth-card center">
+    <div class="big" style="font-size:2.6rem;opacity:.6">⚠️</div>
+    <h1 style="font-size:1.35rem">{{.Data.Code}}</h1>
+    <p>{{.Error}}</p>
+    <div class="btn-row" style="justify-content:center">
+      <a class="btn btn-primary" href="/">返回首页</a>
+      {{if .User}}<a class="btn" href="/app">我的实例</a>{{end}}
+    </div>
+  </div>
+</main>
+
+{{template "foot" .}}{{end}}

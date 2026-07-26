@@ -1,0 +1,37 @@
+#!/sbin/openrc-run
+# OpenRC service for the cub-agent node daemon.
+
+name="cub-agent"
+description="cub-agent (node)"
+
+: ${PANEL_HOME:=/opt/cub-panel}
+
+command="${PANEL_HOME}/bin/cub-agent"
+command_background=true
+command_user="root:root"
+directory="${PANEL_HOME}"
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/${RC_SVCNAME}.log"
+error_log="/var/log/${RC_SVCNAME}.log"
+
+depend() {
+	need net
+	after lxd firewall
+}
+
+start_pre() {
+	checkpath --file --owner root:root --mode 0640 "${output_log}"
+
+	if [ ! -f "${PANEL_HOME}/cub-agent.env" ]; then
+		eerror "missing ${PANEL_HOME}/cub-agent.env"
+		return 1
+	fi
+	set -a
+	. "${PANEL_HOME}/cub-agent.env"
+	set +a
+
+	if [ -z "${CUB_AGENT_SECRET}" ]; then
+		eerror "CUB_AGENT_SECRET is not set in cub-agent.env"
+		return 1
+	fi
+}

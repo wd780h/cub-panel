@@ -1,0 +1,33 @@
+{{define "console.html"}}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>终端 · {{.Data.Inst.Name}}</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/xterm.css">
+</head>
+<body class="term-page">
+{{with .Data.Inst}}
+<div class="term-bar">
+  <span class="brand-mark" aria-hidden="true"></span>
+  <span class="term-title">{{if .Label}}{{.Label}}{{else}}{{.Name}}{{end}}</span>
+  <span class="tag">{{.Image}}</span>
+  <span id="termStatus">连接中…</span>
+  <span class="sp"></span>
+  <button class="btn btn-sm" type="button" id="termReconnect">重新连接</button>
+  <a class="btn btn-sm" href="/app/instance/{{.ID}}">返回</a>
+</div>
+
+<div class="term-host" id="termHost"
+     data-ws="/ws/console/{{.ID}}"
+     data-name="{{.Name}}"></div>
+{{end}}
+
+<script src="/static/xterm.js"></script>
+<script src="/static/xterm-addon-fit.js"></script>
+<script src="/static/console.js" defer></script>
+</body>
+</html>
+{{end}}

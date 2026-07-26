@@ -1,0 +1,52 @@
+{{define "admin_orders.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>充值订单</h1>
+    <p>共 {{len .Data.Orders}} 笔。USDT / 线下订单确认后即为用户加余额（幂等，不会重复入账）。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  {{if .Data.Orders}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>订单号</th><th>用户</th><th>金额</th><th>方式</th><th>交易号</th><th>状态</th><th>时间</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Orders}}
+        <tr>
+          <td class="mono">{{.OrderNo}}</td>
+          <td class="dim">{{.UserEmail}}</td>
+          <td class="mono nowrap">{{money .AmountCents}} 元</td>
+          <td>{{payText .Method}}</td>
+          <td class="mono dim" style="font-size:.78rem;max-width:160px;overflow:hidden;text-overflow:ellipsis">{{if .TxID}}{{.TxID}}{{else}}—{{end}}</td>
+          <td>{{if eq .Status "paid"}}<span class="badge ok">已到账</span>{{else}}<span class="badge wait">待支付</span>{{end}}</td>
+          <td class="dim nowrap">{{fmtTime .CreatedAt}}</td>
+          <td class="t-right t-actions">
+            {{if ne .Status "paid"}}
+            <form method="post" action="/admin/orders/confirm"
+                  data-confirm="确认订单 {{.OrderNo}} 已到账？将为用户加 {{money .AmountCents}} 元。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-sm btn-primary" type="submit">确认到账</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">🧾</div>
+    <p>还没有充值订单。</p>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

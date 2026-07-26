@@ -1,0 +1,184 @@
+{{define "instance.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+{{with .Data.Inst}}
+<main class="wrap" data-inst="{{.ID}}">
+  <div class="page-head flex items-center justify-between flex-wrap gap-1">
+    <div style="min-width:0">
+      <h1 style="margin-bottom:.15em">{{if .Label}}{{.Label}}{{else}}{{.Name}}{{end}}</h1>
+      <p class="mono" style="margin:0">{{.Name}} · {{.NodeName}}</p>
+    </div>
+    <span class="badge {{statusClass .Status}}" data-field="status">{{statusText .Status}}</span>
+  </div>
+
+  {{template "flash" $}}
+
+  {{if eq .Status "error"}}
+  <div class="alert alert-bad"><b>创建失败：</b>{{.Error}}</div>
+  {{end}}
+  {{if eq .Status "provisioning"}}
+  <div class="alert alert-info">实例正在创建中，首次拉取镜像可能需要几分钟，本页会自动刷新状态。</div>
+  {{end}}
+  {{if eq .Status "expired"}}
+  <div class="alert alert-warn">实例已到期并自动停机，如需继续使用请联系管理员续期。</div>
+  {{end}}
+  {{if eq .Status "overquota"}}
+  <div class="alert alert-warn">本月流量已用完并自动停机，流量将在下个计费周期自动重置，也可联系管理员。</div>
+  {{end}}
+
+  <div class="btn-row mb-2">
+    <button class="btn btn-primary" data-action="start" data-id="{{.ID}}">启动</button>
+    <button class="btn" data-action="restart" data-id="{{.ID}}"
+            data-confirm-msg="确定要重启该实例吗？">重启</button>
+    <button class="btn" data-action="stop" data-id="{{.ID}}"
+            data-confirm-msg="确定要停止该实例吗？">停止</button>
+    <a class="btn" href="/app/console/{{.ID}}">网页终端</a>
+    <button class="btn btn-danger" data-action="password" data-id="{{.ID}}"
+            data-confirm-msg="将为该实例生成一个全新的 root 密码，确定继续？">重置 root 密码</button>
+  </div>
+
+  <div id="pwResult" class="card mb-2" hidden>
+    <h3>新的 root 密码</h3>
+    <p class="hint" style="margin-top:-.4em">仅显示一次，请立即保存。</p>
+    <div class="copy">
+      <code></code>
+      <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>连接方式</h3>
+      {{if .SSHPort}}
+      <div class="field">
+        <label>SSH（NAT 端口）</label>
+        <div class="copy">
+          <code>ssh root@{{$.Data.SSHHost}} -p {{.SSHPort}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+      </div>
+      {{end}}
+      {{if .V4Addr}}
+      <div class="field">
+        <label>SSH（独立公网 IPv4）</label>
+        <div class="copy">
+          <code>ssh root@{{.V4Addr}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+      </div>
+      {{end}}
+      {{if .V6Addr}}
+      <div class="field">
+        <label>SSH（独立 IPv6）</label>
+        <div class="copy">
+          <code>ssh root@{{.V6Addr}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+      </div>
+      {{end}}
+      {{if .PortFrom}}
+      <div class="field">
+        <label>可用端口段（TCP + UDP）</label>
+        <div class="copy"><code>{{.PortFrom}} – {{.PortTo}}</code></div>
+        <p class="hint">这些端口已从宿主机直通到容器的同名端口。</p>
+      </div>
+      {{end}}
+      {{if and (eq .InstanceType "vm") .VNCPort}}
+      <div class="field">
+        <label>VNC 控制台（VM）</label>
+        <div class="copy">
+          <code>{{$.Data.SSHHost}}:{{.VNCPort}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+        <p class="hint">用任意 VNC 客户端连接，密码：<code>{{.VNCPass}}</code></p>
+      </div>
+      {{end}}
+    </div>
+
+    <div class="card">
+      <h3>运行状态</h3>
+      <div class="kv">
+        <div class="row"><span>内网 IPv4</span><b class="mono" data-field="ipv4">{{if .NATAddr}}{{.NATAddr}}{{else}}—{{end}}</b></div>
+        {{if .V4Addr}}<div class="row"><span>公网 IPv4</span><b class="mono">{{.V4Addr}}</b></div>{{end}}
+        <div class="row"><span>IPv6</span><b class="mono" data-field="ipv6">{{if .V6Addr}}{{.V6Addr}}{{else}}—{{end}}</b></div>
+        <div class="row"><span>内存占用</span><b data-field="mem">—</b></div>
+        <div class="row"><span>磁盘占用</span><b data-field="disk">—</b></div>
+        <div class="row"><span>网络流量</span><b data-field="net">—</b></div>
+        <div class="row"><span>已运行</span><b data-field="uptime">—</b></div>
+      </div>
+      <div class="meter mt-1"><i data-field="mem-meter" style="width:0%"></i></div>
+    </div>
+
+    <div class="card">
+      <h3>规格</h3>
+      <div class="kv">
+        <div class="row"><span>实例名</span><b class="mono">{{.Name}}</b></div>
+        <div class="row"><span>系统</span><b>{{.Image}}</b></div>
+        <div class="row"><span>CPU</span><b>{{.CPU}} 核</b></div>
+        <div class="row"><span>内存</span><b>{{mb .MemoryMB}}</b></div>
+        <div class="row"><span>硬盘</span><b>{{gb .DiskGB}}</b></div>
+        <div class="row"><span>类型</span><b>{{instTypeText .InstanceType}}</b></div>
+        <div class="row"><span>网络模式</span><b>{{modeText .Mode}}</b></div>
+        <div class="row"><span>流量</span><b>{{if .TrafficLimitGB}}{{bytes .TrafficUsed}} / {{.TrafficLimitGB}} GB
+          <span class="muted">（{{trafficModeText .TrafficMode}}，{{fmtDate .TrafficResetAt}} 重置）</span>{{else}}不限{{end}}</b></div>
+        <div class="row"><span>带宽</span><b>{{if or .RateDownMbps .RateUpMbps}}↓ {{.RateDownMbps}} / ↑ {{.RateUpMbps}} Mbps{{else}}不限{{end}}</b></div>
+        <div class="row"><span>节点</span><b>{{.NodeName}}</b></div>
+        <div class="row"><span>创建时间</span><b>{{fmtTime .CreatedAt}}</b></div>
+        <div class="row"><span>到期时间</span><b>{{fmtDate .ExpiresAt}}{{if gt .ExpiresAt 0}} <span class="muted">（剩 {{daysLeft .ExpiresAt}} 天）</span>{{end}}</b></div>
+      </div>
+    </div>
+
+    {{if $.Data.Upgrades}}
+    <div class="card">
+      <h3>升级配置</h3>
+      <p class="hint" style="margin-top:-.4em">当前余额 {{money $.Data.Balance}} 元。只需支付与现有套餐的差价，配置即时生效，数据不受影响。</p>
+      <form method="post" action="/app/instance/{{.ID}}/upgrade"
+            data-confirm="确认升级？将从余额扣除所选套餐的差价。">
+        <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+        <div class="field">
+          <select name="plan_id">
+            {{range $.Data.Upgrades}}
+            <option value="{{.ID}}">{{.Name}} · {{.CPU}}C/{{mb .MemoryMB}}/{{gb .DiskGB}} · 差价 {{money (sub .PriceCents $.Data.OldPrice)}} 元</option>
+            {{end}}
+          </select>
+        </div>
+        <button class="btn btn-primary" type="submit">升级</button>
+      </form>
+    </div>
+    {{end}}
+
+    {{if eq .InstanceType "vm"}}
+    <div class="card" id="isoCard" data-id="{{.ID}}">
+      <h3>ISO 光驱</h3>
+      <p class="hint" style="margin-top:-.4em">挂载后可从 ISO 引导（如装自定义系统）。ISO 由管理员在镜像页导入到节点。挂载/卸载后需重启虚拟机生效。</p>
+      <div id="isoState" class="dim" style="font-size:.85rem">加载中…</div>
+    </div>
+    {{end}}
+
+    <div class="card" id="snapCard" data-id="{{.ID}}">
+      <h3>快照</h3>
+      <p class="hint" style="margin-top:-.4em">最多 3 个。还原会把实例回滚到快照时刻，之后的改动将丢失。</p>
+      <form id="snapForm" class="flex gap-1" style="margin-bottom:.8em">
+        <input type="text" name="snapshot" maxlength="32" placeholder="快照名，如 before-update" class="mono" style="flex:1">
+        <button class="btn btn-sm btn-primary" type="submit">创建</button>
+      </form>
+      <div id="snapList" class="dim" style="font-size:.85rem">加载中…</div>
+    </div>
+
+    <div class="card">
+      <h3>备注名</h3>
+      <p class="hint" style="margin-top:-.4em">仅用于在控制台中区分实例，不影响容器本身。</p>
+      <form id="labelForm" data-id="{{.ID}}">
+        <div class="field">
+          <input type="text" name="label" value="{{.Label}}" maxlength="32" placeholder="例如：测试机">
+        </div>
+        <button class="btn" type="submit">保存</button>
+      </form>
+    </div>
+  </div>
+
+  <p class="mt-3"><a class="btn btn-ghost btn-sm" href="/app">← 返回实例列表</a></p>
+</main>
+{{end}}
+
+{{template "foot" .}}{{end}}

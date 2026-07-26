@@ -1,0 +1,91 @@
+{{define "admin_settings.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>网站设置</h1>
+    <p>站点名称、公告与支付渠道配置。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  <form method="post" action="/admin/settings">
+    <input type="hidden" name="_csrf" value="{{.CSRF}}">
+
+    <div class="card mb-2">
+      <h3>站点</h3>
+      <div class="form-grid">
+        <div class="field span2">
+          <label for="s-name">站点名称</label>
+          <input id="s-name" type="text" name="site_name" maxlength="40" value="{{.Data.SiteName}}"
+                 placeholder="Cub Panel">
+          <p class="hint">显示在导航、标题与页脚，留空则用启动配置的默认值。</p>
+        </div>
+        <div class="field span2">
+          <label for="s-notice">公告</label>
+          <textarea id="s-notice" name="announcement" rows="4" maxlength="2000"
+                    placeholder="留空则不显示。支持换行。">{{.Data.Announcement}}</textarea>
+          <p class="hint">显示在每个页面顶部的横幅里。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-2">
+      <h3>支付宝 / 微信（易支付）</h3>
+      <p class="hint" style="margin-top:-.4em">对接易支付(epay)兼容网关：填你自己的 epay 站点、商户 ID 与密钥即可同时支持支付宝与微信。
+        回调地址请在 epay 后台或本站保持一致：<span class="mono">{{.Site}} /pay/epay/notify</span></p>
+      <div class="form-grid">
+        <div class="field span2">
+          <label for="e-url">易支付站点地址</label>
+          <input id="e-url" type="text" name="pay_epay_url" maxlength="200" value="{{.Data.EpayURL}}"
+                 placeholder="https://pay.example.com" class="mono">
+        </div>
+        <div class="field">
+          <label for="e-pid">商户 PID</label>
+          <input id="e-pid" type="text" name="pay_epay_pid" maxlength="64" value="{{.Data.EpayPID}}" class="mono">
+        </div>
+        <div class="field">
+          <label for="e-key">商户密钥</label>
+          <input id="e-key" type="text" name="pay_epay_key" maxlength="128" value="{{.Data.EpayKey}}" class="mono">
+        </div>
+        <div class="field span2">
+          <label>启用渠道</label>
+          <div class="btn-row" style="gap:1.2em">
+            <label class="check"><input type="checkbox" name="pay_alipay" value="1" {{if .Data.Alipay}}checked{{end}}><span>支付宝</span></label>
+            <label class="check"><input type="checkbox" name="pay_wxpay" value="1" {{if .Data.Wxpay}}checked{{end}}><span>微信支付</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-2">
+      <h3>USDT</h3>
+      <p class="hint" style="margin-top:-.4em">用户转账到收款地址后提交交易号，在「订单」页确认到账。</p>
+      <div class="form-grid">
+        <div class="field span2">
+          <label class="check"><input type="checkbox" name="pay_usdt" value="1" {{if .Data.USDTOn}}checked{{end}}><span>启用 USDT 充值</span></label>
+        </div>
+        <div class="field span2">
+          <label for="u-addr">收款地址</label>
+          <input id="u-addr" type="text" name="pay_usdt_addr" maxlength="128" value="{{.Data.USDTAddr}}" class="mono"
+                 placeholder="T...（TRC20 地址）">
+        </div>
+        <div class="field">
+          <label for="u-net">网络</label>
+          <input id="u-net" type="text" name="pay_usdt_net" maxlength="16" value="{{.Data.USDTNet}}" class="mono" placeholder="TRC20">
+        </div>
+        <div class="field">
+          <label for="u-rate">汇率（元 / USDT）</label>
+          <input id="u-rate" type="text" name="pay_usdt_rate" inputmode="decimal" value="{{.Data.USDTRate}}" class="mono" placeholder="7.30">
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" type="submit">保存设置</button>
+    </div>
+  </form>
+</main>
+
+{{template "foot" .}}{{end}}

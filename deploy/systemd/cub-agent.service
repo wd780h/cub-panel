@@ -1,0 +1,26 @@
+[Unit]
+Description=cub-agent (node)
+After=network-online.target lxd.service snap.lxd.daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/cub-panel
+EnvironmentFile=/opt/cub-panel/cub-agent.env
+ExecStart=/opt/cub-panel/bin/cub-agent
+Restart=always
+RestartSec=3
+
+# The agent only ever talks to the local LXD unix socket.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

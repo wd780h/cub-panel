@@ -1,0 +1,100 @@
+{{define "admin_instances.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>实例管理</h1>
+    <p>共 {{len .Data.Instances}} 台实例。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  {{if .Data.Instances}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>实例</th><th>所有者</th><th>节点</th><th>规格</th><th>网络</th><th>状态</th><th>到期</th><th class="t-right">操作</th></tr>
+      </thead>
+      <tbody>
+        {{range .Data.Instances}}
+        <tr>
+          <td>
+            <b class="mono">{{.Name}}</b>
+            {{if .Label}}<div class="muted" style="font-size:.8rem">{{.Label}}</div>{{end}}
+            <div class="muted" style="font-size:.78rem">{{.Image}}</div>
+          </td>
+          <td class="dim">{{.UserEmail}}</td>
+          <td>{{.NodeName}}</td>
+          <td class="mono nowrap">{{.CPU}}C / {{.MemoryMB}}M / {{.DiskGB}}G
+            <div class="dim" style="font-size:.78rem">{{if .TrafficLimitGB}}{{bytes .TrafficUsed}}/{{.TrafficLimitGB}}G · {{trafficModeText .TrafficMode}}{{else}}不限流量{{end}}</div></td>
+          <td class="mono dim" style="font-size:.8rem">
+            {{if .SSHPort}}:{{.SSHPort}}{{end}}
+            {{if .PortFrom}}<br>{{.PortFrom}}–{{.PortTo}}{{end}}
+            {{if .V6Addr}}<br>{{.V6Addr}}{{end}}
+          </td>
+          <td>
+            <span class="badge {{statusClass .Status}}">{{statusText .Status}}</span>
+            {{if .Error}}<div class="muted" style="font-size:.75rem;max-width:180px">{{.Error}}</div>{{end}}
+          </td>
+          <td class="dim nowrap">{{fmtDate .ExpiresAt}}</td>
+          <td class="t-right t-actions">
+            <a class="btn btn-sm" href="/app/instance/{{.ID}}">详情</a>
+            <form method="post" action="/admin/instances/resize"
+                  data-confirm="按填写的规格调整 {{.Name}}？磁盘只能扩大。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <input type="text" name="cpu" value="{{.CPU}}" class="mono" style="width:44px;padding:6px 6px" aria-label="CPU 核数" title="CPU 核数">
+              <input type="text" name="memory_mb" value="{{.MemoryMB}}" class="mono" style="width:64px;padding:6px 6px" aria-label="内存 MB" title="内存 (MB)">
+              <input type="text" name="disk_gb" value="{{.DiskGB}}" class="mono" style="width:52px;padding:6px 6px" aria-label="硬盘 GB" title="硬盘 (GB)">
+              <input type="text" name="rate_down_mbps" value="{{.RateDownMbps}}" class="mono" style="width:48px;padding:6px 6px" aria-label="下行 Mbps" title="下行带宽 (Mbps，0 不限)">
+              <input type="text" name="rate_up_mbps" value="{{.RateUpMbps}}" class="mono" style="width:48px;padding:6px 6px" aria-label="上行 Mbps" title="上行带宽 (Mbps，0 不限)">
+              <button class="btn btn-sm" type="submit">调整</button>
+            </form>
+            <form method="post" action="/admin/instances/extend">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <input type="hidden" name="days" value="30">
+              <button class="btn btn-sm" type="submit">+30 天</button>
+            </form>
+            {{if .TrafficLimitGB}}
+            <form method="post" action="/admin/instances/traffic-reset"
+                  data-confirm="清零 {{.Name}} 的已用流量？超限停机会一并解除。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-sm" type="submit">重置流量</button>
+            </form>
+            {{end}}
+            {{$nid := .NodeID}}
+            {{if gt (len $.Data.Nodes) 1}}
+            <form method="post" action="/admin/instances/migrate"
+                  data-confirm="将 {{.Name}} 冷迁移到所选节点？会先停机再复制，期间不可用。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <select name="dest_node" style="padding:6px 6px" aria-label="目标节点">
+                {{range $.Data.Nodes}}{{if ne .ID $nid}}<option value="{{.ID}}">{{.Name}}</option>{{end}}{{end}}
+              </select>
+              <button class="btn btn-sm" type="submit">迁移</button>
+            </form>
+            {{end}}
+            <form method="post" action="/admin/instances/delete"
+                  data-confirm="彻底删除实例 {{.Name}}？容器与数据将无法恢复。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="btn btn-sm btn-danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card empty">
+    <div class="big">📦</div>
+    <p>还没有任何实例。</p>
+  </div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

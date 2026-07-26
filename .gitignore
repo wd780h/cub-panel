@@ -1,0 +1,26 @@
+# Compiled binaries — ship these via GitHub Releases, not the repo.
+/bin/
+/src/agent
+/src/panel
+
+# Runtime data & secrets (never commit)
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.env
+agent-cert.pem
+agent-cert.pem.fp
+agent-key.pem
+/isos/
+
+# Go build cache / vendor
+/src/vendor/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~
+
+# Claude Code session config
+.claude/
