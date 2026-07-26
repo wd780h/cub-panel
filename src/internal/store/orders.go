@@ -37,14 +37,10 @@ func scanOrder(s interface{ Scan(...any) error }) (*Order, error) {
 
 // CreateOrder inserts a pending recharge order.
 func (d *DB) CreateOrder(ctx context.Context, o *Order) (int64, error) {
-	res, err := d.ExecContext(ctx,
+	return d.insertID(ctx,
 		`INSERT INTO recharge_orders (order_no, user_id, amount_cents, method, status, txid, created_at)
 		 VALUES (?,?,?,?,'pending',?,?)`,
 		o.OrderNo, o.UserID, o.AmountCents, o.Method, o.TxID, now())
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // OrderByNo looks up an order by its station order number.
@@ -68,7 +64,7 @@ func (d *DB) SetOrderTxID(ctx context.Context, id int64, txid string) error {
 // approval) is a no-op that still reports success. Returns whether it was the
 // call that actually credited.
 func (d *DB) MarkOrderPaid(ctx context.Context, orderNo, txid string) (credited bool, err error) {
-	err = d.Tx(ctx, func(tx *sql.Tx) error {
+	err = d.Tx(ctx, func(tx *Tx) error {
 		var o Order
 		row := tx.QueryRowContext(ctx, `SELECT `+orderCols+` FROM recharge_orders WHERE order_no = ?`, orderNo)
 		if e := row.Scan(&o.ID, &o.OrderNo, &o.UserID, &o.AmountCents, &o.Method, &o.Status, &o.TxID, &o.CreatedAt, &o.PaidAt); e != nil {

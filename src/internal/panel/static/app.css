@@ -559,6 +559,8 @@ details.panel > .body { padding: 0 20px 20px; }
   display: flex; gap: 9px; justify-content: center; flex-wrap: wrap;
 }
 .foot-sep { opacity: .4; }
+.foot-link { color: var(--text-mute); text-decoration: none; border-bottom: 1px dotted var(--line-soft); }
+.foot-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* ---------- utilities ---------- */
 

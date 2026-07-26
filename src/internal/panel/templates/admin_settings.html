@@ -28,6 +28,15 @@
                     placeholder="留空则不显示。支持换行。">{{.Data.Announcement}}</textarea>
           <p class="hint">显示在每个页面顶部的横幅里。</p>
         </div>
+        <div class="field span2">
+          <label class="check">
+            <input type="checkbox" name="hide_repo_link" value="1" {{if .Data.HideRepoLink}}checked{{end}}>
+            <span>隐藏页脚的开源项目链接</span>
+          </label>
+          <p class="hint">页脚默认显示本项目地址
+            <a href="{{.Data.RepoURL}}" target="_blank" rel="noopener noreferrer" class="mono">{{.Data.RepoURL}}</a>，
+            勾选后不再显示。</p>
+        </div>
       </div>
     </div>
 

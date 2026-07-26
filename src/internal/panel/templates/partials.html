@@ -95,6 +95,10 @@
     <span>&copy; {{.Year}} {{.Site}}</span>
     <span class="foot-sep">·</span>
     <span>{{T "基于 Incus 容器技术"}}</span>
+    {{if .RepoShow}}
+    <span class="foot-sep">·</span>
+    <a class="foot-link" href="{{.RepoURL}}" target="_blank" rel="noopener noreferrer">{{T "开源项目"}} ↗</a>
+    {{end}}
   </div>
 </footer>
 <script src="/static/app.js" defer></script>

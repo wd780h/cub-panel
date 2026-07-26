@@ -87,6 +87,24 @@ curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.
 
 ---
 
+## 🗄 数据库
+
+安装主控时脚本会**询问用数据库**：SQLite（默认）、PostgreSQL 或 MySQL。
+面板端**只负责对接，不会替你安装数据库**——选 PG/MySQL 需自备已创建好的实例并填 DSN。
+
+| 后端 | 何时用 | 配置 |
+|---|---|---|
+| **SQLite**（默认） | 单机、中小规模，零依赖 | `CUB_PANEL_DB_DRIVER=sqlite` + `CUB_PANEL_DB=/opt/cub-panel/data/panel.db` |
+| **PostgreSQL** | 大规模 / 高并发 / 多实例，**推荐** | `CUB_PANEL_DB_DRIVER=postgres` + `CUB_PANEL_DB_DSN=postgres://user:pass@host:5432/db?sslmode=disable` |
+| **MySQL** | 已有 MySQL 生态 | `CUB_PANEL_DB_DRIVER=mysql` + `CUB_PANEL_DB_DSN=user:pass@tcp(host:3306)/db` |
+
+> ⚠️ **SQLite 局限**：只允许单写入者、高并发下会锁等待、无法多面板共享同一库、
+> 迁移只能拷文件。生产 / 大规模 / 需要高可用时请用 PostgreSQL（或 MySQL）。
+> 三种后端的建表与查询已用真实 Postgres / MySQL 容器端到端测试。切换只需改
+> `cub-panel.env` 重启——但**已有数据不会自动迁移**，换库请在上线前决定。
+
+---
+
 ## 🌐 网络模式
 
 节点可**同时**开 NAT、独立 IPv6、独立公网 IPv4 三个池，套餐按需挑组合：

@@ -75,7 +75,7 @@ var enDict = map[string]string{
 	"实时容量与在线情况。": "Live capacity and availability.", "在线": "Online", "离线": "Offline",
 	"类型": "Type", "内存": "RAM", "硬盘": "Disk", "网络": "Network", "时长": "Term",
 	"流量": "Traffic", "带宽": "Bandwidth", "价格": "Price", "特性": "Features",
-	"永久": "Unlimited", "不限": "Unlimited", "容器": "Container", "天": "days", "基于 Incus 容器技术": "Powered by Incus",
+	"永久": "Unlimited", "不限": "Unlimited", "容器": "Container", "天": "days", "基于 Incus 容器技术": "Powered by Incus", "开源项目": "Open source",
 
 	// auth
 	"邮箱": "Email", "密码": "Password", "确认密码": "Confirm password",

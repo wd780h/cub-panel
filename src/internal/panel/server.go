@@ -168,19 +168,24 @@ func cacheStatic(next http.Handler) http.Handler {
 
 // page is the data envelope handed to every template.
 type page struct {
-	Site   string
-	Title  string
-	User   *store.User
-	CSRF   string
-	Active string
-	Flash  string
-	Error  string
-	Data   map[string]any
-	Year   int
-	Signup bool
-	Notice string // site-wide announcement
-	Lang   string // "zh" or "en"
+	Site     string
+	Title    string
+	User     *store.User
+	CSRF     string
+	Active   string
+	Flash    string
+	Error    string
+	Data     map[string]any
+	Year     int
+	Signup   bool
+	Notice   string // site-wide announcement
+	Lang     string // "zh" or "en"
+	RepoURL  string // open-source project link shown in the footer
+	RepoShow bool   // admins can hide the footer link from site settings
 }
+
+// repoURL is the upstream project, shown in the footer unless hidden.
+const repoURL = "https://github.com/wd780h/cub-panel"
 
 // newPage builds the common template envelope for a request.
 func (s *Server) newPage(r *http.Request, title, active string) *page {
@@ -189,14 +194,16 @@ func (s *Server) newPage(r *http.Request, title, active string) *page {
 	// without a restart; likewise the announcement.
 	site := s.db.Setting(ctx, "site_name", s.cfg.SiteName)
 	p := &page{
-		Site:   site,
-		Title:  title,
-		Active: active,
-		Data:   map[string]any{},
-		Year:   time.Now().Year(),
-		Signup: s.cfg.AllowSignup,
-		Notice: s.db.Setting(ctx, "announcement", ""),
-		Lang:   langOf(r),
+		Site:     site,
+		Title:    title,
+		Active:   active,
+		Data:     map[string]any{},
+		Year:     time.Now().Year(),
+		Signup:   s.cfg.AllowSignup,
+		Notice:   s.db.Setting(ctx, "announcement", ""),
+		Lang:     langOf(r),
+		RepoURL:  repoURL,
+		RepoShow: s.db.Setting(ctx, "hide_repo_link", "") != "1",
 	}
 	if ac := userFrom(r); ac != nil {
 		p.User = ac.User

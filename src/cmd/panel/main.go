@@ -39,18 +39,36 @@ func envBool(key string, def bool) bool {
 
 func main() {
 	var cfg panel.Config
+	var dbDriver, dbDSN string
 	flag.StringVar(&cfg.Listen, "listen", env("CUB_PANEL_LISTEN", "0.0.0.0:8080"), "listen address")
 	flag.StringVar(&cfg.DBPath, "db", env("CUB_PANEL_DB", "./data/panel.db"), "sqlite database path")
+	flag.StringVar(&dbDriver, "db-driver", env("CUB_PANEL_DB_DRIVER", "sqlite"), "database driver: sqlite | postgres | mysql")
+	flag.StringVar(&dbDSN, "db-dsn", env("CUB_PANEL_DB_DSN", ""), "connection string for postgres/mysql (ignored for sqlite)")
 	flag.StringVar(&cfg.SiteName, "site", env("CUB_PANEL_SITE", "Cub Panel"), "site name")
 	flag.BoolVar(&cfg.SecureCookies, "secure-cookies", envBool("CUB_PANEL_SECURE_COOKIES", false), "set the Secure flag on cookies (enable behind HTTPS)")
 	flag.BoolVar(&cfg.TrustProxy, "trust-proxy", envBool("CUB_PANEL_TRUST_PROXY", false), "trust X-Forwarded-For / X-Real-IP")
 	flag.BoolVar(&cfg.AllowSignup, "allow-signup", envBool("CUB_PANEL_ALLOW_SIGNUP", true), "allow public registration")
 	flag.Parse()
 
-	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o750); err != nil {
-		log.Fatalf("create data dir: %v", err)
+	// SQLite takes a filesystem path (its directory is created); postgres and
+	// mysql take a DSN and manage their own storage.
+	dbDriver = strings.ToLower(strings.TrimSpace(dbDriver))
+	dsn := dbDSN
+	dbDesc := dbDriver
+	switch dbDriver {
+	case "", "sqlite":
+		dbDriver, dsn, dbDesc = "sqlite", cfg.DBPath, "sqlite:"+cfg.DBPath
+		if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o750); err != nil {
+			log.Fatalf("create data dir: %v", err)
+		}
+	case "postgres", "mysql":
+		if strings.TrimSpace(dsn) == "" {
+			log.Fatalf("CUB_PANEL_DB_DSN is required when CUB_PANEL_DB_DRIVER=%s", dbDriver)
+		}
+	default:
+		log.Fatalf("unknown CUB_PANEL_DB_DRIVER %q (use sqlite, postgres or mysql)", dbDriver)
 	}
-	db, err := store.Open(cfg.DBPath)
+	db, err := store.Open(dbDriver, dsn)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
@@ -81,7 +99,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("cub-panel listening on %s (db: %s)", cfg.Listen, cfg.DBPath)
+		log.Printf("cub-panel listening on %s (db: %s)", cfg.Listen, dbDesc)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("listen: %v", err)
 		}

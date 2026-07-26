@@ -7,7 +7,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 )
 
 // ErrInsufficient is returned when a debit would take a balance negative.
@@ -34,7 +33,7 @@ type Transaction struct {
 // ErrDuplicateRef, which makes recharge callbacks idempotent.
 func (d *DB) AdjustBalance(ctx context.Context, userID, delta int64, kind, ref, note string) (int64, error) {
 	var balance int64
-	err := d.Tx(ctx, func(tx *sql.Tx) error {
+	err := d.Tx(ctx, func(tx *Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`UPDATE users SET balance_cents = balance_cents + ?
 			  WHERE id = ? AND balance_cents + ? >= 0`, delta, userID, delta)
@@ -61,10 +60,22 @@ func (d *DB) AdjustBalance(ctx context.Context, userID, delta int64, kind, ref, 
 			`SELECT balance_cents FROM users WHERE id = ?`, userID).Scan(&balance); err != nil {
 			return err
 		}
+		// SQLite and PostgreSQL enforce ref uniqueness with a partial unique
+		// index; MySQL has no partial index, so guard the non-empty ref here.
+		if ref != "" && d.driver == MySQL {
+			var one int
+			switch err := tx.QueryRowContext(ctx,
+				`SELECT 1 FROM transactions WHERE ref = ?`, ref).Scan(&one); {
+			case err == nil:
+				return ErrDuplicateRef
+			case !errors.Is(err, sql.ErrNoRows):
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO transactions (user_id, amount_cents, balance_cents, kind, ref, note, created_at)
 			 VALUES (?,?,?,?,?,?,?)`, userID, delta, balance, kind, ref, note, now()); err != nil {
-			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			if isUniqueErr(err) {
 				return ErrDuplicateRef
 			}
 			return err

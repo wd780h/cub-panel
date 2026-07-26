@@ -42,19 +42,16 @@ func scanUser(s interface{ Scan(...any) error }) (*User, error) {
 
 // CreateUser inserts a new account and returns its id.
 func (d *DB) CreateUser(ctx context.Context, email, hash string, admin bool) (int64, error) {
-	res, err := d.ExecContext(ctx,
+	return d.insertID(ctx,
 		`INSERT INTO users (email, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)`,
-		strings.TrimSpace(email), hash, boolInt(admin), now())
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+		normEmail(email), hash, boolInt(admin), now())
 }
 
-// UserByEmail looks an account up by address (case-insensitive).
+// UserByEmail looks an account up by address. Emails are stored lower-cased, so
+// a plain equality match is case-insensitive across every dialect.
 func (d *DB) UserByEmail(ctx context.Context, email string) (*User, error) {
 	return scanUser(d.QueryRowContext(ctx,
-		`SELECT `+userCols+` FROM users WHERE email = ? COLLATE NOCASE`, strings.TrimSpace(email)))
+		`SELECT `+userCols+` FROM users WHERE email = ?`, normEmail(email)))
 }
 
 // UserByID looks an account up by id.
@@ -228,7 +225,7 @@ func scanNode(s interface{ Scan(...any) error }) (*Node, error) {
 // SaveNode inserts or updates a node. A zero ID inserts.
 func (d *DB) SaveNode(ctx context.Context, n *Node) (int64, error) {
 	if n.ID == 0 {
-		res, err := d.ExecContext(ctx,
+		return d.insertID(ctx,
 			`INSERT INTO nodes (name, region, endpoint, secret, cert_fp, storage_pool, nat_bridge, nat_subnet,
 			   nat_managed, nat_gw, nat_reserved, dns,
 			   port_min, port_max, ports_each, v6_enabled, v6_bridge, v6_cidr, v6_gw,
@@ -240,10 +237,6 @@ func (d *DB) SaveNode(ctx context.Context, n *Node) (int64, error) {
 			n.PortMin, n.PortMax, n.PortsEach, boolInt(n.V6Enabled), n.V6Bridge, n.V6CIDR, n.V6GW,
 			boolInt(n.V4Enabled), n.V4Bridge, n.V4CIDR, n.V4GW,
 			boolInt(n.KVMEnabled), n.MaxInstances, boolInt(n.Enabled), now())
-		if err != nil {
-			return 0, err
-		}
-		return res.LastInsertId()
 	}
 	_, err := d.ExecContext(ctx,
 		`UPDATE nodes SET name=?, region=?, endpoint=?, secret=?, cert_fp=?, storage_pool=?, nat_bridge=?,
@@ -412,17 +405,13 @@ func scanPlan(s interface{ Scan(...any) error }) (*Plan, error) {
 // SavePlan inserts or updates a plan.
 func (d *DB) SavePlan(ctx context.Context, p *Plan) (int64, error) {
 	if p.ID == 0 {
-		res, err := d.ExecContext(ctx,
+		return d.insertID(ctx,
 			`INSERT INTO plans (name, description, cpu, memory_mb, disk_gb, mode, instance_type, features,
 			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, images,
 			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.Features,
 			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Images,
 			p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, now())
-		if err != nil {
-			return 0, err
-		}
-		return res.LastInsertId()
 	}
 	_, err := d.ExecContext(ctx,
 		`UPDATE plans SET name=?, description=?, cpu=?, memory_mb=?, disk_gb=?, mode=?, instance_type=?, features=?,
@@ -489,7 +478,7 @@ type Code struct {
 
 // InsertCodes bulk-inserts a batch of codes in one transaction.
 func (d *DB) InsertCodes(ctx context.Context, codes []string, planID, nodeID int64, batch, note string, expiresAt int64) error {
-	return d.Tx(ctx, func(tx *sql.Tx) error {
+	return d.Tx(ctx, func(tx *Tx) error {
 		st, err := tx.PrepareContext(ctx,
 			`INSERT INTO codes (code, plan_id, node_id, batch, note, expires_at, created_at)
 			 VALUES (?,?,?,?,?,?,?)`)
@@ -681,7 +670,7 @@ func scanInst(s interface{ Scan(...any) error }, extra ...any) (*Instance, error
 
 // CreateInstance persists a new instance record.
 func (d *DB) CreateInstance(ctx context.Context, i *Instance) (int64, error) {
-	res, err := d.ExecContext(ctx,
+	return d.insertID(ctx,
 		`INSERT INTO instances (user_id, node_id, plan_id, code_id, name, label, image, family,
 		   cpu, memory_mb, disk_gb, mode, instance_type, nat_addr, ssh_port, port_from, port_to, v6_addr,
 		   status, traffic_limit_gb, traffic_mode, traffic_reset_at, rate_down_mbps, rate_up_mbps,
@@ -692,10 +681,6 @@ func (d *DB) CreateInstance(ctx context.Context, i *Instance) (int64, error) {
 		i.CPU, i.MemoryMB, i.DiskGB, i.Mode, i.InstanceType, i.NATAddr, i.SSHPort, i.PortFrom, i.PortTo,
 		i.V6Addr, i.Status, i.TrafficLimitGB, i.TrafficMode, i.TrafficResetAt,
 		i.RateDownMbps, i.RateUpMbps, i.ExtraBridges, i.VNCPort, i.VNCPass, i.V4Addr, now(), i.ExpiresAt)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // InstanceByID fetches an instance with its node joined.
@@ -908,20 +893,33 @@ func (d *DB) ListAudit(ctx context.Context, limit int) ([]*AuditEntry, error) {
 
 // ---------- settings ----------
 
-// Setting reads a settings value, returning def when absent.
+// Setting reads a settings value, returning def when absent. `key` is a
+// reserved word in MySQL, so it is back-tick quoted there.
 func (d *DB) Setting(ctx context.Context, key, def string) string {
+	q := `SELECT value FROM settings WHERE key = ?`
+	if d.driver == MySQL {
+		q = "SELECT value FROM settings WHERE `key` = ?"
+	}
 	var v string
-	if err := d.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v); err != nil {
+	if err := d.QueryRowContext(ctx, q, key).Scan(&v); err != nil {
 		return def
 	}
 	return v
 }
 
-// SetSetting upserts a settings value.
+// SetSetting upserts a settings value using each dialect's upsert form.
 func (d *DB) SetSetting(ctx context.Context, key, value string) error {
-	_, err := d.ExecContext(ctx,
-		`INSERT INTO settings (key, value) VALUES (?, ?)
-		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
+	var err error
+	switch d.driver {
+	case MySQL:
+		_, err = d.ExecContext(ctx,
+			"INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)",
+			key, value)
+	default: // sqlite, postgres — `key` is non-reserved and ON CONFLICT is shared syntax
+		_, err = d.ExecContext(ctx,
+			`INSERT INTO settings (key, value) VALUES (?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
+	}
 	return err
 }
 
@@ -933,6 +931,10 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
+
+// normEmail lower-cases and trims an address so equality matches are
+// case-insensitive on every dialect without relying on a collation.
+func normEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 func truncate(s string, n int) string {
 	if len(s) <= n {

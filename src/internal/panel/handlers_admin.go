@@ -884,6 +884,8 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 	get := func(k, def string) string { return s.db.Setting(ctx, k, def) }
 	p.Data["SiteName"] = get("site_name", s.cfg.SiteName)
 	p.Data["Announcement"] = get("announcement", "")
+	p.Data["HideRepoLink"] = get("hide_repo_link", "") == "1"
+	p.Data["RepoURL"] = repoURL
 	p.Data["EpayURL"] = get("pay_epay_url", "")
 	p.Data["EpayPID"] = get("pay_epay_pid", "")
 	p.Data["EpayKey"] = get("pay_epay_key", "")
@@ -905,6 +907,7 @@ func (s *Server) handleAdminSettingsSave(w http.ResponseWriter, r *http.Request)
 	set := func(k, v string) { _ = s.db.SetSetting(ctx, k, v) }
 	set("site_name", formStr(r, "site_name", 40))
 	set("announcement", formStr(r, "announcement", 2000))
+	set("hide_repo_link", boolStr(formBool(r, "hide_repo_link")))
 	set("pay_epay_url", formStr(r, "pay_epay_url", 200))
 	set("pay_epay_pid", formStr(r, "pay_epay_pid", 64))
 	set("pay_epay_key", formStr(r, "pay_epay_key", 128))

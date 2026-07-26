@@ -89,6 +89,26 @@ or price a plan so tenants can provision from balance at `/app/deploy`.
 
 ---
 
+## 🗄 Database
+
+Installing the master **prompts for a database**: SQLite (default), PostgreSQL or MySQL.
+The panel **only connects — it never installs a database server**. Choosing PG/MySQL means
+you bring an existing instance and supply a DSN.
+
+| Backend | When | Config |
+|---|---|---|
+| **SQLite** (default) | Single host, small/medium, zero deps | `CUB_PANEL_DB_DRIVER=sqlite` + `CUB_PANEL_DB=/opt/cub-panel/data/panel.db` |
+| **PostgreSQL** | Large scale / high concurrency / multi-instance, **recommended** | `CUB_PANEL_DB_DRIVER=postgres` + `CUB_PANEL_DB_DSN=postgres://user:pass@host:5432/db?sslmode=disable` |
+| **MySQL** | Existing MySQL estate | `CUB_PANEL_DB_DRIVER=mysql` + `CUB_PANEL_DB_DSN=user:pass@tcp(host:3306)/db` |
+
+> ⚠️ **SQLite limits**: single writer only, lock contention under concurrency, no shared
+> database across multiple panels, migration = copying the file. For production / scale /
+> HA use PostgreSQL (or MySQL). All three backends are tested end-to-end against real
+> Postgres / MySQL containers. Switching is just editing `cub-panel.env` and restarting —
+> but **existing data is not auto-migrated**, so decide before you go live.
+
+---
+
 ## 🌐 Network modes
 
 A node can enable NAT, dedicated IPv6 and dedicated public IPv4 pools **simultaneously**;
