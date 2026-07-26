@@ -104,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/instances/{id}/state", s.requireUser(s.handleAPIState))
 	mux.HandleFunc("POST /api/instances/{id}/action", s.rateLimit(s.limits.action, s.requireUser(s.csrfGuard(s.handleAPIAction))))
 	mux.HandleFunc("POST /api/instances/{id}/password", s.rateLimit(s.limits.action, s.requireUser(s.csrfGuard(s.handleAPIPassword))))
+	mux.HandleFunc("POST /api/instances/{id}/reinstall", s.rateLimit(s.limits.action, s.requireUser(s.csrfGuard(s.handleAPIReinstall))))
 	mux.HandleFunc("POST /api/instances/{id}/label", s.requireUser(s.csrfGuard(s.handleAPILabel)))
 	mux.HandleFunc("GET /api/instances/{id}/snapshots", s.requireUser(s.handleAPISnapshotList))
 	mux.HandleFunc("POST /api/instances/{id}/snapshots", s.rateLimit(s.limits.action, s.requireUser(s.csrfGuard(s.handleAPISnapshotCreate))))

@@ -688,6 +688,16 @@ func (d *DB) CreateInstance(ctx context.Context, i *Instance) (int64, error) {
 		i.RateDownMbps, i.RateUpMbps, i.ExtraBridges, i.Mounts, i.ExtraDisks, i.VNCPort, i.VNCPass, i.V4Addr, now(), i.ExpiresAt)
 }
 
+// ResetForReinstall points an instance at a new image and rewinds its runtime
+// state ahead of a wipe-and-rebuild. Traffic usage is billing state and stays;
+// the node-counter snapshots reset because the new instance starts from zero.
+func (d *DB) ResetForReinstall(ctx context.Context, id int64, image, family string) error {
+	_, err := d.ExecContext(ctx,
+		`UPDATE instances SET image=?, family=?, status='provisioning', error='', last_rx=0, last_tx=0 WHERE id=?`,
+		image, family, id)
+	return err
+}
+
 // InstanceByID fetches an instance with its node joined.
 func (d *DB) InstanceByID(ctx context.Context, id int64) (*Instance, error) {
 	row := d.QueryRowContext(ctx,

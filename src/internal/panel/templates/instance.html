@@ -46,6 +46,20 @@
     </div>
   </div>
 
+  {{if $.Data.ReinstallImages}}
+  <div class="card mb-2">
+    <h3>重装系统</h3>
+    <p class="hint" style="margin-top:-.4em">按所选系统清空重建：IP / 端口 / 流量计费保持不变；
+      <b>磁盘数据、快照与数据盘会被清空</b>，新 root 密码只显示一次。</p>
+    <div class="btn-row">
+      <select id="reinstallImage">
+        {{range $.Data.ReinstallImages}}<option value="{{.}}" {{if eq . $.Data.Inst.Image}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+      <button class="btn btn-danger" id="reinstallBtn" data-id="{{.ID}}">重装系统</button>
+    </div>
+  </div>
+  {{end}}
+
   <div class="grid grid-2">
     <div class="card">
       <h3>连接方式</h3>

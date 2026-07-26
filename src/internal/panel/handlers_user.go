@@ -100,6 +100,10 @@ func (s *Server) handleInstancePage(w http.ResponseWriter, r *http.Request) {
 		p.Data["SSHHost"] = hostOnly(node.Endpoint)
 	}
 	p.Data["Upgrades"] = s.upgradeCandidates(r.Context(), inst)
+	// Reinstall picks from the plan's allowed images; no plan → no reinstall.
+	if plan, err := s.db.PlanByID(r.Context(), inst.PlanID); err == nil {
+		p.Data["ReinstallImages"] = plan.ImageList()
+	}
 	p.Data["Balance"] = ac.User.BalanceCents
 	p.Data["OldPrice"] = s.instancePlanPrice(r.Context(), inst)
 	switch {
@@ -525,6 +529,54 @@ func (s *Server) handleAPIPassword(w http.ResponseWriter, r *http.Request) {
 	ac := userFrom(r)
 	s.db.Audit(r.Context(), ac.User.ID, ac.User.Email, "instance.password", inst.Name, clientIP(r))
 	s.jsonOK(w, map[string]any{"ok": true, "password": pw})
+}
+
+// handleAPIReinstall wipes an instance and rebuilds it from a chosen image.
+// The network allocation (addresses, ports, VNC) is kept — only the disk is
+// new. Snapshots and data disks die with the old instance.
+func (s *Server) handleAPIReinstall(w http.ResponseWriter, r *http.Request) {
+	inst, node, ok := s.ownedInstance(w, r)
+	if !ok {
+		return
+	}
+	if inst.Status == "provisioning" {
+		s.jsonErr(w, http.StatusConflict, "实例正在部署中，请稍候再试")
+		return
+	}
+	plan, err := s.db.PlanByID(r.Context(), inst.PlanID)
+	if err != nil {
+		s.jsonErr(w, http.StatusConflict, "套餐信息缺失，无法重装")
+		return
+	}
+	image := formStr(r, "image", 64)
+	if !plan.AllowsImage(image) {
+		s.jsonErr(w, http.StatusBadRequest, "所选系统不在该套餐允许范围内")
+		return
+	}
+	rootPW := randomPassword(16)
+	if err := s.db.ResetForReinstall(r.Context(), inst.ID, image, familyOf(image)); err != nil {
+		s.jsonErr(w, http.StatusInternalServerError, "记录更新失败")
+		return
+	}
+	inst.Image, inst.Family, inst.Status = image, familyOf(image), "provisioning"
+
+	ac := userFrom(r)
+	s.db.Audit(r.Context(), ac.User.ID, ac.User.Email, "instance.reinstall",
+		fmt.Sprintf("%s -> %s", inst.Name, image), clientIP(r))
+
+	// Delete-then-rebuild runs out of band, exactly like first provisioning;
+	// the dashboard polls the status to completion.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := agentDelete(ctx, node, inst.Name); err != nil &&
+			!strings.Contains(err.Error(), "not found") {
+			_ = s.db.SetInstanceStatus(ctx, inst.ID, "error", "重装失败（删除旧实例）："+err.Error())
+			return
+		}
+		s.provision(node, inst, rootPW, plan.FeatureList(), plan.KeepSourceIP, 0)
+	}()
+	s.jsonOK(w, map[string]any{"ok": true, "password": rootPW})
 }
 
 // handleAPILabel renames an instance in the UI.

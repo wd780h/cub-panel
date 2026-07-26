@@ -169,6 +169,24 @@
     toast('root 密码已重置', 'ok');
   }
 
+  /* ---------- reinstall ---------- */
+
+  var reBtn = document.getElementById('reinstallBtn');
+  if (reBtn) reBtn.addEventListener('click', function () {
+    var sel = document.getElementById('reinstallImage');
+    var img = sel ? sel.value : '';
+    if (!img) return;
+    if (!window.confirm('确定重装为 ' + img + ' ？\n\n磁盘数据、快照与数据盘将被清空且无法找回；IP / 端口保持不变。')) return;
+    reBtn.classList.add('is-busy');
+    post('/api/instances/' + encodeURIComponent(reBtn.getAttribute('data-id')) + '/reinstall', { image: img })
+      .then(function (j) {
+        showPassword(j.password);
+        toast('已开始重装，完成后状态会自动变为运行中', 'ok');
+      })
+      .catch(function (err) { toast(err.message, 'bad'); })
+      .finally(function () { reBtn.classList.remove('is-busy'); });
+  });
+
   /* ---------- label editing ---------- */
 
   var labelForm = document.getElementById('labelForm');
