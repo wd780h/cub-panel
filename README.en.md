@@ -8,6 +8,8 @@ Master + agent architecture · static Go binaries · zero external dependencies 
 
 <sub>License: MIT · Go 1.25+ · amd64 / arm64 · SQLite</sub>
 
+<sub>🤖 Developed with Claude Fable 5</sub>
+
 [简体中文](README.md) · **English**
 
 </div>

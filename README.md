@@ -9,6 +9,8 @@ Self-service panel for selling & managing [Incus](https://linuxcontainers.org/in
 
 <sub>License: MIT · Go 1.25+ · amd64 / arm64 · SQLite</sub>
 
+<sub>🤖 采用 Claude Fable 5 开发</sub>
+
 **简体中文** · [English](README.en.md)
 
 </div>
