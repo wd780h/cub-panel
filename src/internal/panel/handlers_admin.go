@@ -227,8 +227,45 @@ func (s *Server) handleAdminNodeProbe(w http.ResponseWriter, r *http.Request) {
 		s.jsonErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	// Config sanity: a managed NAT bridge whose real subnet differs from the
+	// panel's nat_subnet makes every provision fail with an Incus device
+	// error, so surface the mismatch right here on the probe.
+	if node.NATManaged {
+		if addr, ok := info.Bridges[node.NATBridge]; ok {
+			if warn := subnetMismatch(node.NATBridge, node.NATSubnet, addr); warn != "" {
+				info.Warning = warn
+			}
+		}
+	}
 	_ = s.db.TouchNode(context.Background(), node.ID, "ok")
 	s.jsonOK(w, info)
+}
+
+// subnetMismatch reports a human-readable warning when the panel's configured
+// subnet and the bridge's actual ipv4.address disagree; empty means they match
+// (or either side is unparsable, which other validation already covers).
+func subnetMismatch(bridge, panelSubnet, bridgeAddr string) string {
+	_, cfg, err1 := net.ParseCIDR(strings.TrimSpace(panelSubnet))
+	_, real, err2 := net.ParseCIDR(strings.TrimSpace(bridgeAddr))
+	if err1 != nil || err2 != nil {
+		return ""
+	}
+	if cfg.String() == real.String() {
+		return ""
+	}
+	// Gateway form of the panel subnet (first usable address) for the
+	// bridge-side fix command.
+	gw := ""
+	if ip4 := cfg.IP.To4(); ip4 != nil {
+		g := make(net.IP, 4)
+		copy(g, ip4)
+		g[3]++
+		ones, _ := cfg.Mask.Size()
+		gw = fmt.Sprintf("%s/%d", g, ones)
+	}
+	return fmt.Sprintf("NAT 子网不一致：面板配置 %s，网桥 %s 实际是 %s，开通实例会失败。"+
+		"二选一：把本节点「NAT 子网」改为 %s；或在节点上执行 incus network set %s ipv4.address=%s",
+		panelSubnet, bridge, real.String(), real.String(), bridge, gw)
 }
 
 // ---------- plans ----------

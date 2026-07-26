@@ -257,9 +257,18 @@
     btn.classList.add('is-busy');
     post('/admin/nodes/probe', { id: btn.getAttribute('data-probe') })
       .then(function (j) {
-        toast('节点在线 · LXD ' + (j.lxd_version || '?') + ' · ' + (j.instances || 0) + ' 个容器', 'ok');
+        if (j.warning) {
+          // Config mismatch: the node answers but provisioning would fail.
+          toast(j.warning, 'bad');
+        } else {
+          toast('节点在线 · LXD ' + (j.lxd_version || '?') + ' · ' + (j.instances || 0) + ' 个容器', 'ok');
+        }
         var cell = document.querySelector('[data-node-status="' + cssEscape(btn.getAttribute('data-probe')) + '"]');
-        if (cell) { cell.textContent = '在线'; cell.className = 'badge ok'; }
+        if (cell) {
+          cell.textContent = j.warning ? '配置不符' : '在线';
+          cell.className = j.warning ? 'badge bad' : 'badge ok';
+          if (j.warning) cell.title = j.warning;
+        }
       })
       .catch(function (err) { toast(err.message, 'bad'); })
       .finally(function () { btn.classList.remove('is-busy'); });

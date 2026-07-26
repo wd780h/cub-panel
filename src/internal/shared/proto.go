@@ -264,6 +264,11 @@ type NodeInfo struct {
 	MemFree    int64   `json:"mem_free"`
 	Load1      float64 `json:"load1"`
 	Instances  int     `json:"instances"`
+	// Bridges maps each managed network to its ipv4.address ("10.1.2.1/24"),
+	// so the panel can spot a NAT-subnet mismatch before provisioning fails.
+	Bridges map[string]string `json:"bridges,omitempty"`
+	// Warning is filled by the panel's probe when it detects a config mismatch.
+	Warning string `json:"warning,omitempty"`
 }
 
 // LocalImage describes one image cached on a node.

@@ -547,6 +547,20 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
+// Network is one daemon-side network (managed bridges carry ipv4.address).
+type Network struct {
+	Name    string            `json:"name"`
+	Managed bool              `json:"managed"`
+	Config  map[string]string `json:"config"`
+}
+
+// Networks lists every network with its config.
+func (c *Client) Networks(ctx context.Context) ([]Network, error) {
+	var nets []Network
+	err := c.sync(ctx, "GET", "/1.0/networks?recursion=1", nil, &nets)
+	return nets, err
+}
+
 // ---------- storage pools & custom volumes ----------
 
 // StoragePool is one pool as reported by the daemon.

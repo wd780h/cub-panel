@@ -148,6 +148,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request, _ []byte) 
 	}
 	info.MemTotal, info.MemFree = memInfo()
 	info.Load1 = loadAvg1()
+	// Managed bridge subnets let the panel catch NAT-subnet mismatches at
+	// probe time instead of at the first failed provision.
+	if nets, err := s.lxd.Networks(ctx); err == nil {
+		for _, n := range nets {
+			if n.Managed && n.Config["ipv4.address"] != "" {
+				if info.Bridges == nil {
+					info.Bridges = map[string]string{}
+				}
+				info.Bridges[n.Name] = n.Config["ipv4.address"]
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, info)
 }
 
