@@ -330,7 +330,8 @@
           // Config mismatch: the node answers but provisioning would fail.
           toast(j.warning, 'bad');
         } else {
-          toast('节点在线 · LXD ' + (j.lxd_version || '?') + ' · ' + (j.instances || 0) + ' 个容器', 'ok');
+          toast('节点在线 · ' + (j.agent || 'agent') + ' · LXD ' + (j.lxd_version || '?') +
+                ' · ' + (j.instances || 0) + ' 个容器', 'ok');
         }
         var cell = document.querySelector('[data-node-status="' + cssEscape(btn.getAttribute('data-probe')) + '"]');
         if (cell) {

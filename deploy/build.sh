@@ -30,11 +30,16 @@ if [ "$TARGET_ARCH" != "$HOST_ARCH" ] || [ "$TARGET_OS" != "$HOST_OS" ]; then
 	[ "$TARGET_OS" != "linux" ] && SUFFIX="-$TARGET_OS$SUFFIX"
 fi
 
-echo "==> building cub-panel ($TARGET_OS/$TARGET_ARCH)"
-go build -trimpath -ldflags="-s -w" -o "$SRC_DIR/bin/cub-panel$SUFFIX" ./cmd/panel
+# Stamp the release so both sides can report it (and the panel can warn about
+# an agent that was never upgraded). Override with VERSION=v0.1.17 ./build.sh.
+VERSION="${VERSION:-$(git -C "$SRC_DIR" describe --tags --always 2>/dev/null || echo dev)}"
+LDFLAGS="-s -w -X cubpanel/internal/shared.Version=$VERSION"
 
-echo "==> building cub-agent ($TARGET_OS/$TARGET_ARCH)"
-go build -trimpath -ldflags="-s -w" -o "$SRC_DIR/bin/cub-agent$SUFFIX" ./cmd/agent
+echo "==> building cub-panel ($TARGET_OS/$TARGET_ARCH, $VERSION)"
+go build -trimpath -ldflags="$LDFLAGS" -o "$SRC_DIR/bin/cub-panel$SUFFIX" ./cmd/panel
+
+echo "==> building cub-agent ($TARGET_OS/$TARGET_ARCH, $VERSION)"
+go build -trimpath -ldflags="$LDFLAGS" -o "$SRC_DIR/bin/cub-agent$SUFFIX" ./cmd/agent
 
 chmod 0755 "$SRC_DIR/bin/cub-panel$SUFFIX" "$SRC_DIR/bin/cub-agent$SUFFIX"
 ls -lh "$SRC_DIR/bin/"

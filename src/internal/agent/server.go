@@ -137,7 +137,7 @@ func instName(w http.ResponseWriter, r *http.Request) (string, bool) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request, _ []byte) {
 	ctx := r.Context()
-	info := shared.NodeInfo{Agent: "cub-agent/1.0", CPUCount: runtimeCPUs()}
+	info := shared.NodeInfo{Agent: "cub-agent/" + shared.Version, CPUCount: runtimeCPUs()}
 	if _, err := os.Stat("/dev/kvm"); err == nil {
 		info.KVMReady = true
 	}

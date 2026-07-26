@@ -255,6 +255,14 @@ func (s *Server) handleAdminNodeProbe(w http.ResponseWriter, r *http.Request) {
 				node.StoragePool, strings.Join(info.Pools, ", "), node.StoragePool))
 		}
 	}
+	// An agent left behind by a panel upgrade keeps its old provisioning
+	// behaviour, which is otherwise invisible until an instance misbehaves.
+	if av := strings.TrimPrefix(info.Agent, "cub-agent/"); av != "" &&
+		shared.Version != "dev" && av != "dev" && av != shared.Version {
+		warns = append(warns, fmt.Sprintf(
+			"被控版本 %s 与主控 %s 不一致，请在该节点重跑 agent 安装命令升级",
+			av, shared.Version))
+	}
 	if len(warns) > 0 {
 		info.Warning = strings.Join(warns, "；")
 	}
