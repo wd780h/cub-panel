@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"cubpanel/internal/lxd"
@@ -111,6 +113,29 @@ func (s *Server) buildDevices(req *shared.CreateRequest) map[string]lxd.Device {
 	return dev
 }
 
+// hostPrimaryIP returns the host's primary outbound IPv4, cached. Newer Incus
+// refuses nat=true proxy devices listening on 0.0.0.0, so DNAT forwards must
+// name a concrete address. The UDP "connection" sends no packets — it only
+// asks the kernel which source address the default route would pick.
+var (
+	hostIPOnce sync.Once
+	hostIPVal  string
+)
+
+func hostPrimaryIP() string {
+	hostIPOnce.Do(func() {
+		conn, err := net.Dial("udp", "8.8.8.8:80")
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if a, ok := conn.LocalAddr().(*net.UDPAddr); ok && a.IP.To4() != nil {
+			hostIPVal = a.IP.String()
+		}
+	})
+	return hostIPVal
+}
+
 // addPortForwards installs the SSH + block forwards for a NAT instance.
 // nat=true keeps the client's real source IP (DNAT); a plain proxy hides it
 // behind the host. On unmanaged bridges the agent's own iptables DNAT does
@@ -123,15 +148,27 @@ func (s *Server) addPortForwards(dev map[string]lxd.Device, req *shared.CreateRe
 	if target == "" {
 		target = "127.0.0.1"
 	}
+	// nat=true = DNAT (source preserved). Only on a managed bridge, and only
+	// when the plan wants the real source IP shown. Incus refuses wildcard
+	// listens in nat mode, so DNAT needs the host's concrete address; if that
+	// cannot be determined, degrade to the userspace proxy instead of failing.
+	useNAT := req.NATManaged && req.KeepSourceIP
+	listenIP := "0.0.0.0"
+	if useNAT {
+		if ip := hostPrimaryIP(); ip != "" {
+			listenIP = ip
+		} else {
+			s.log("instance %s: no primary host IP found, falling back to userspace proxy (source IP hidden)", req.Name)
+			useNAT = false
+		}
+	}
 	proxy := func(proto, listen, connect string) lxd.Device {
 		d := lxd.Device{
 			"type":    "proxy",
-			"listen":  fmt.Sprintf("%s:0.0.0.0:%s", proto, listen),
+			"listen":  fmt.Sprintf("%s:%s:%s", proto, listenIP, listen),
 			"connect": fmt.Sprintf("%s:%s:%s", proto, target, connect),
 		}
-		// nat=true = DNAT (source preserved). Only on a managed bridge, and
-		// only when the plan wants the real source IP shown.
-		if req.NATManaged && req.KeepSourceIP {
+		if useNAT {
 			d["nat"] = "true"
 		}
 		return d
