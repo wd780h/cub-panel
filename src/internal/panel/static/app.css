@@ -41,6 +41,8 @@
           "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
           "Liberation Mono", monospace;
+
+  color-scheme: dark;
 }
 
 /* Light palette — shared by "auto follows system" and "forced light". */
@@ -64,7 +66,9 @@
   --nav-bg: rgba(255, 255, 255, .85);
   --shadow: 0 1px 3px rgba(0, 0, 0, .06);
   --ring: 0 0 0 3px rgba(37, 99, 235, .25);
+  color-scheme: light;
 }
+:root[data-theme="dark"] { color-scheme: dark; }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --bg:        #ffffff;
@@ -86,6 +90,7 @@
     --nav-bg: rgba(255, 255, 255, .85);
     --shadow: 0 1px 3px rgba(0, 0, 0, .06);
     --ring: 0 0 0 3px rgba(37, 99, 235, .25);
+    color-scheme: light;
   }
 }
 
@@ -386,13 +391,16 @@ select, textarea {
   transition: border-color .15s, background .15s;
 }
 input::placeholder, textarea::placeholder { color: var(--text-mute); }
-input:focus, select:focus, textarea:focus { border-color: var(--accent); background: var(--surface-2); }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); background-color: var(--surface-2); }
 textarea { resize: vertical; min-height: 74px; }
 select {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%239ea3b8' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%23888' stroke-width='1.6' d='M1 1.5l5 5 5-5'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 13px center; padding-right: 34px;
 }
+/* The option popup is painted by the browser; pin it to the panel palette so
+   it matches even when the OS colour scheme differs. */
+select option { background: var(--bg-soft); color: var(--text); }
 
 .check { display: flex; align-items: center; gap: 9px; font-size: .9rem; color: var(--text-dim); cursor: pointer; }
 .check input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
