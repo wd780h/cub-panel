@@ -113,10 +113,17 @@ func (s *Server) buildDevices(req *shared.CreateRequest) map[string]lxd.Device {
 	return dev
 }
 
-// hostPrimaryIP returns the host's primary outbound IPv4, cached. Newer Incus
-// refuses nat=true proxy devices listening on 0.0.0.0, so DNAT forwards must
-// name a concrete address. The UDP "connection" sends no packets — it only
-// asks the kernel which source address the default route would pick.
+// isWildcardNATErr matches the Incus refusal of a wildcard listen in nat mode.
+func isWildcardNATErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "wildcard address") &&
+		strings.Contains(err.Error(), "nat")
+}
+
+// hostPrimaryIP returns the host's primary outbound IPv4, cached — the
+// fallback listen address when Incus rejects the wildcard. The UDP
+// "connection" sends no packets: it only asks the kernel which source address
+// the default route would pick. On NAT-fronted hosts this is the private NIC
+// address, which is why it is a fallback rather than the default.
 var (
 	hostIPOnce sync.Once
 	hostIPVal  string
@@ -149,23 +156,19 @@ func (s *Server) addPortForwards(dev map[string]lxd.Device, req *shared.CreateRe
 		target = "127.0.0.1"
 	}
 	// nat=true = DNAT (source preserved). Only on a managed bridge, and only
-	// when the plan wants the real source IP shown. Incus refuses wildcard
-	// listens in nat mode, so DNAT needs the host's concrete address; if that
-	// cannot be determined, degrade to the userspace proxy instead of failing.
+	// when the plan wants the real source IP shown.
+	//
+	// Listen on the wildcard: it covers every host address, which is what
+	// tenants expect and what NAT-fronted hosts (public IP mapped upstream,
+	// private address on the NIC) require — binding one probed address there
+	// yields a port nothing can reach. Some Incus builds reject a wildcard
+	// listen in nat mode; buildDevices' caller retries those via
+	// natListenFallback below.
 	useNAT := req.NATManaged && req.KeepSourceIP
-	listenIP := "0.0.0.0"
-	if useNAT {
-		if ip := hostPrimaryIP(); ip != "" {
-			listenIP = ip
-		} else {
-			s.log("instance %s: no primary host IP found, falling back to userspace proxy (source IP hidden)", req.Name)
-			useNAT = false
-		}
-	}
 	proxy := func(proto, listen, connect string) lxd.Device {
 		d := lxd.Device{
 			"type":    "proxy",
-			"listen":  fmt.Sprintf("%s:%s:%s", proto, listenIP, listen),
+			"listen":  fmt.Sprintf("%s:%s:%s", proto, s.natListenIP, listen),
 			"connect": fmt.Sprintf("%s:%s:%s", proto, target, connect),
 		}
 		if useNAT {
@@ -336,10 +339,23 @@ func (s *Server) Create(ctx context.Context, req *shared.CreateRequest) error {
 		}
 	}
 	if err := s.lxd.Create(ctx, post); err != nil {
-		if len(req.ExtraDisks) > 0 {
-			s.deleteExtraDisks(ctx, diskPool, req.Name)
+		// Some Incus builds reject a wildcard listen in nat mode. Bind the
+		// host's primary address instead and retry once — the wildcard stays
+		// the default because it is what NAT-fronted hosts need.
+		if isWildcardNATErr(err) && s.natListenIP == "0.0.0.0" {
+			if ip := hostPrimaryIP(); ip != "" {
+				s.log("instance %s: wildcard nat listen refused, retrying on %s", req.Name, ip)
+				s.natListenIP = ip
+				post.Devices = s.buildDevices(req)
+				err = s.lxd.Create(ctx, post)
+			}
 		}
-		return fmt.Errorf("create: %w", err)
+		if err != nil {
+			if len(req.ExtraDisks) > 0 {
+				s.deleteExtraDisks(ctx, diskPool, req.Name)
+			}
+			return fmt.Errorf("create: %w", err)
+		}
 	}
 	if s.useAgentDNAT(req) {
 		if err := s.applyDNAT(ctx, req.Name, dnatSpec{

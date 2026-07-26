@@ -39,15 +39,20 @@ type Server struct {
 	nonces *nonceCache
 	remote remoteCache
 	hasIPT bool // host can take agent-managed DNAT rules
+	// natListenIP is the address DNAT proxy devices bind. "0.0.0.0" (the
+	// default) reaches every host address; it degrades to the host's primary
+	// IP only on Incus builds that reject a wildcard listen in nat mode.
+	natListenIP string
 }
 
 // New builds an agent server.
 func New(cfg Config) *Server {
 	return &Server{
-		cfg:    cfg,
-		lxd:    lxd.New(cfg.LXDSocket),
-		nonces: newNonceCache(),
-		hasIPT: hasIptables(),
+		cfg:         cfg,
+		lxd:         lxd.New(cfg.LXDSocket),
+		nonces:      newNonceCache(),
+		hasIPT:      hasIptables(),
+		natListenIP: "0.0.0.0",
 	}
 }
 
