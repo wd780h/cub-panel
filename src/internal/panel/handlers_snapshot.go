@@ -178,9 +178,18 @@ func (s *Server) runMigration(inst *store.Instance, src, dst *store.Node) {
 		v4pool = pl.V4Pool
 		keepSrc = pl.KeepSourceIP
 	}
-	alloc, err := s.db.Allocate(ctx, dst, store.AllocSpec{
-		WantNAT: needsNAT(inst.Mode), WantDV4: needsDV4(inst.Mode),
-		WantDV6: needsV6(inst.Mode), WantVNC: inst.InstanceType == "vm", V4Pool: v4pool,
+	// Known gap: this claim only becomes durable when step 4 updates the
+	// instance row, minutes later — a concurrent launch on dst could pick the
+	// same address meanwhile. Acceptable for a rare admin action; the clash
+	// surfaces as a failed provision, not silent corruption.
+	var alloc *store.Allocation
+	err := store.AllocSection(func() error {
+		var aerr error
+		alloc, aerr = s.db.Allocate(ctx, dst, store.AllocSpec{
+			WantNAT: needsNAT(inst.Mode), WantDV4: needsDV4(inst.Mode),
+			WantDV6: needsV6(inst.Mode), WantVNC: inst.InstanceType == "vm", V4Pool: v4pool,
+		})
+		return aerr
 	})
 	if err != nil {
 		fail("allocate", err)

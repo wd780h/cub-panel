@@ -303,59 +303,70 @@ func needsNAT(mode string) bool { return shared.ModeHasNAT(shared.NetMode(mode))
 
 // launch allocates resources, records the instance and starts provisioning
 // in the background. Callers roll back their entitlement on error.
+//
+// Allocation and the instance insert run inside one AllocSection: the picked
+// addresses/ports only become visible to the next Allocate once the row is
+// written, so the whole pick-then-persist must be a single critical section.
 func (s *Server) launch(ctx context.Context, sp launchSpec) (*store.Instance, string, error) {
-	alloc, err := s.db.Allocate(ctx, sp.node, store.AllocSpec{
-		WantNAT: needsNAT(sp.plan.Mode),
-		WantDV4: needsDV4(sp.plan.Mode),
-		WantDV6: needsV6(sp.plan.Mode),
-		WantVNC: sp.plan.InstanceType == "vm",
-		V4Pool:  sp.plan.V4Pool,
+	var inst *store.Instance
+	rootPW := randomPassword(16)
+	err := store.AllocSection(func() error {
+		alloc, err := s.db.Allocate(ctx, sp.node, store.AllocSpec{
+			WantNAT: needsNAT(sp.plan.Mode),
+			WantDV4: needsDV4(sp.plan.Mode),
+			WantDV6: needsV6(sp.plan.Mode),
+			WantVNC: sp.plan.InstanceType == "vm",
+			V4Pool:  sp.plan.V4Pool,
+		})
+		if err != nil {
+			return fmt.Errorf("资源分配失败：%v", err)
+		}
+		name, err := s.uniqueName(ctx)
+		if err != nil {
+			return errors.New("生成实例名失败")
+		}
+
+		instType := sp.plan.InstanceType
+		if instType != "vm" {
+			instType = "container"
+		}
+		inst = &store.Instance{
+			UserID: sp.user.ID, NodeID: sp.node.ID, PlanID: sp.plan.ID, CodeID: sp.codeID,
+			InstanceType: instType,
+			Name:         name, Label: sp.label, Image: sp.image, Family: familyOf(sp.image),
+			CPU: sp.plan.CPU, MemoryMB: sp.plan.MemoryMB, DiskGB: sp.plan.DiskGB,
+			Mode: sp.plan.Mode, NATAddr: alloc.NATAddr, SSHPort: alloc.SSHPort,
+			PortFrom: alloc.PortFrom, PortTo: alloc.PortTo, V6Addr: alloc.V6Addr,
+			V4Addr:       alloc.V4Addr,
+			ExtraBridges: sp.plan.ExtraBridges,
+			Status:       "provisioning",
+		}
+		// VMs get a VNC console: a dedicated host port + an 8-char password
+		// (QEMU's built-in VNC auth is DES and caps at 8 characters).
+		if instType == "vm" && alloc.VNCPort > 0 {
+			inst.VNCPort = alloc.VNCPort
+			inst.VNCPass = randomPassword(8)
+		}
+		if sp.plan.DurationDays > 0 {
+			inst.ExpiresAt = time.Now().AddDate(0, 0, sp.plan.DurationDays).Unix()
+		}
+		inst.RateDownMbps = sp.plan.RateDownMbps
+		inst.RateUpMbps = sp.plan.RateUpMbps
+		inst.TrafficLimitGB = sp.plan.TrafficGB
+		inst.TrafficMode = trafficModeOr(sp.plan.TrafficMode)
+		if inst.TrafficLimitGB > 0 {
+			inst.TrafficResetAt = time.Now().AddDate(0, 0, 30).Unix()
+		}
+		instID, err := s.db.CreateInstance(ctx, inst)
+		if err != nil {
+			return errors.New("创建实例记录失败")
+		}
+		inst.ID = instID
+		return nil
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("资源分配失败：%v", err)
+		return nil, "", err
 	}
-	name, err := s.uniqueName(ctx)
-	if err != nil {
-		return nil, "", errors.New("生成实例名失败")
-	}
-	rootPW := randomPassword(16)
-
-	instType := sp.plan.InstanceType
-	if instType != "vm" {
-		instType = "container"
-	}
-	inst := &store.Instance{
-		UserID: sp.user.ID, NodeID: sp.node.ID, PlanID: sp.plan.ID, CodeID: sp.codeID,
-		InstanceType: instType,
-		Name:         name, Label: sp.label, Image: sp.image, Family: familyOf(sp.image),
-		CPU: sp.plan.CPU, MemoryMB: sp.plan.MemoryMB, DiskGB: sp.plan.DiskGB,
-		Mode: sp.plan.Mode, NATAddr: alloc.NATAddr, SSHPort: alloc.SSHPort,
-		PortFrom: alloc.PortFrom, PortTo: alloc.PortTo, V6Addr: alloc.V6Addr,
-		V4Addr:       alloc.V4Addr,
-		ExtraBridges: sp.plan.ExtraBridges,
-		Status:       "provisioning",
-	}
-	// VMs get a VNC console: a dedicated host port + an 8-char password
-	// (QEMU's built-in VNC auth is DES and caps at 8 characters).
-	if instType == "vm" && alloc.VNCPort > 0 {
-		inst.VNCPort = alloc.VNCPort
-		inst.VNCPass = randomPassword(8)
-	}
-	if sp.plan.DurationDays > 0 {
-		inst.ExpiresAt = time.Now().AddDate(0, 0, sp.plan.DurationDays).Unix()
-	}
-	inst.RateDownMbps = sp.plan.RateDownMbps
-	inst.RateUpMbps = sp.plan.RateUpMbps
-	inst.TrafficLimitGB = sp.plan.TrafficGB
-	inst.TrafficMode = trafficModeOr(sp.plan.TrafficMode)
-	if inst.TrafficLimitGB > 0 {
-		inst.TrafficResetAt = time.Now().AddDate(0, 0, 30).Unix()
-	}
-	instID, err := s.db.CreateInstance(ctx, inst)
-	if err != nil {
-		return nil, "", errors.New("创建实例记录失败")
-	}
-	inst.ID = instID
 
 	// Image pulls can take minutes, so provision out of band and let the
 	// dashboard poll for the result.

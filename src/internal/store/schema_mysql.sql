@@ -167,11 +167,14 @@ CREATE TABLE IF NOT EXISTS transactions (
   amount_cents  BIGINT  NOT NULL,
   balance_cents BIGINT  NOT NULL,
   kind          VARCHAR(32) NOT NULL,
-  ref           VARCHAR(191) NOT NULL DEFAULT '',
+  -- ref is NULLable: MySQL UNIQUE ignores NULLs, so empty refs (stored as
+  -- NULL) may repeat while real refs are enforced unique — the idempotency
+  -- guarantee that sqlite/postgres get from their partial unique index.
+  ref           VARCHAR(191) NULL DEFAULT NULL,
   note          VARCHAR(512) NOT NULL DEFAULT '',
   created_at    BIGINT  NOT NULL,
   KEY idx_tx_user (user_id, id),
-  KEY idx_tx_ref (ref),
+  UNIQUE KEY idx_tx_ref (ref),
   CONSTRAINT fk_tx_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

@@ -9,6 +9,10 @@ import (
 	"errors"
 )
 
+// errAlreadyCredited signals that a concurrent callback won the credit race;
+// the transaction is rolled back and the caller reports a clean no-op.
+var errAlreadyCredited = errors.New("order already credited")
+
 // Order is one recharge attempt.
 type Order struct {
 	ID          int64
@@ -81,7 +85,9 @@ func (d *DB) MarkOrderPaid(ctx context.Context, orderNo, txid string) (credited 
 			nonEmpty(txid, o.TxID), now(), o.ID); e != nil {
 			return e
 		}
-		// Credit via the ledger, keyed on the order number for idempotency.
+		// Credit via the ledger, keyed on the order number. The unique index on
+		// transactions.ref is the real idempotency barrier: two callbacks that
+		// both read status=pending race to this insert, and exactly one wins.
 		if _, e := tx.ExecContext(ctx,
 			`UPDATE users SET balance_cents = balance_cents + ? WHERE id = ?`, o.AmountCents, o.UserID); e != nil {
 			return e
@@ -94,11 +100,19 @@ func (d *DB) MarkOrderPaid(ctx context.Context, orderNo, txid string) (credited 
 			`INSERT INTO transactions (user_id, amount_cents, balance_cents, kind, ref, note, created_at)
 			 VALUES (?,?,?,?,?,?,?)`,
 			o.UserID, o.AmountCents, bal, "recharge", "order:"+orderNo, o.Method+" 充值", now()); e != nil {
+			if isUniqueErr(e) {
+				// A concurrent callback already credited this order; roll back
+				// our duplicate credit and report success-but-not-credited.
+				return errAlreadyCredited
+			}
 			return e
 		}
 		credited = true
 		return nil
 	})
+	if errors.Is(err, errAlreadyCredited) {
+		return false, nil
+	}
 	return credited, err
 }
 

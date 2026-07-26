@@ -5,7 +5,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 )
 
@@ -60,21 +59,17 @@ func (d *DB) AdjustBalance(ctx context.Context, userID, delta int64, kind, ref, 
 			`SELECT balance_cents FROM users WHERE id = ?`, userID).Scan(&balance); err != nil {
 			return err
 		}
-		// SQLite and PostgreSQL enforce ref uniqueness with a partial unique
-		// index; MySQL has no partial index, so guard the non-empty ref here.
-		if ref != "" && d.driver == MySQL {
-			var one int
-			switch err := tx.QueryRowContext(ctx,
-				`SELECT 1 FROM transactions WHERE ref = ?`, ref).Scan(&one); {
-			case err == nil:
-				return ErrDuplicateRef
-			case !errors.Is(err, sql.ErrNoRows):
-				return err
-			}
+		// Idempotency is enforced by the database, never by a racy pre-check:
+		// sqlite/postgres use a partial unique index (WHERE ref != ''); MySQL
+		// has no partial index, so empty refs are stored as NULL (its UNIQUE
+		// ignores NULLs) and real refs collide on the unique key.
+		refVal := any(ref)
+		if d.driver == MySQL {
+			refVal = nullIfEmpty(ref)
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO transactions (user_id, amount_cents, balance_cents, kind, ref, note, created_at)
-			 VALUES (?,?,?,?,?,?,?)`, userID, delta, balance, kind, ref, note, now()); err != nil {
+			 VALUES (?,?,?,?,?,?,?)`, userID, delta, balance, kind, refVal, note, now()); err != nil {
 			if isUniqueErr(err) {
 				return ErrDuplicateRef
 			}
@@ -88,7 +83,7 @@ func (d *DB) AdjustBalance(ctx context.Context, userID, delta int64, kind, ref, 
 // ListTransactions returns a user's ledger, newest first. userID 0 lists all
 // users (admin view).
 func (d *DB) ListTransactions(ctx context.Context, userID int64, limit int) ([]*Transaction, error) {
-	q := `SELECT id, user_id, amount_cents, balance_cents, kind, ref, note, created_at
+	q := `SELECT id, user_id, amount_cents, balance_cents, kind, COALESCE(ref,''), note, created_at
 	        FROM transactions`
 	args := []any{}
 	if userID > 0 {

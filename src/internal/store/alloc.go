@@ -9,10 +9,21 @@ import (
 	"sync"
 )
 
-// allocMu serialises resource allocation across requests. SQLite already
-// serialises writers, but the read-then-write pattern below needs the wider
-// critical section to stay race-free.
+// allocMu serialises resource allocation across requests. Allocate reads what
+// is in use and picks free addresses/ports, but the claim only becomes durable
+// once the caller persists the instance row — so the lock must span BOTH, or
+// two concurrent launches can be handed the same address. Callers hold it via
+// AllocSection around the whole pick-then-persist critical section.
 var allocMu sync.Mutex
+
+// AllocSection runs fn while holding the allocation lock. Wrap Allocate
+// together with the write that persists its claim (CreateInstance or the
+// instance update); Allocate itself takes no lock.
+func AllocSection(fn func() error) error {
+	allocMu.Lock()
+	defer allocMu.Unlock()
+	return fn()
+}
 
 // Allocation is the set of network resources reserved for a new instance.
 type Allocation struct {
@@ -35,11 +46,9 @@ type AllocSpec struct {
 }
 
 // Allocate reserves the network resources named by spec. It fails rather than
-// overcommit.
+// overcommit. Call inside AllocSection together with the write that persists
+// the claim — the pick is not durable until the instance row exists.
 func (d *DB) Allocate(ctx context.Context, node *Node, spec AllocSpec) (*Allocation, error) {
-	allocMu.Lock()
-	defer allocMu.Unlock()
-
 	used, err := d.nodeUsage(ctx, node.ID)
 	if err != nil {
 		return nil, err

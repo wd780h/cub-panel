@@ -562,6 +562,14 @@ details.panel > .body { padding: 0 20px 20px; }
 .foot-link { color: var(--text-mute); text-decoration: none; border-bottom: 1px dotted var(--line-soft); }
 .foot-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* one-click install command rows (admin nodes page) */
+.install-row { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+.install-cmd {
+  flex: 1; padding: 8px 10px; font-size: .8rem; border-radius: 8px;
+  background: var(--bg-soft); border: 1px solid var(--line-soft);
+  overflow-x: auto; white-space: nowrap;
+}
+
 /* ---------- utilities ---------- */
 
 .mt-0 { margin-top: 0; }

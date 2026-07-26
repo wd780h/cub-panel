@@ -10,6 +10,25 @@
   {{template "adminnav" .}}
   {{template "flash" .}}
 
+  <div class="card mb-2">
+    <h3>在新宿主机上一键安装被控</h3>
+    <p class="hint" style="margin:6px 0 10px">
+      在目标机（root）依次执行：先装 Incus 环境（已装可跳过），再装 cub-agent。
+      装完把脚本打印的 <b>Agent 地址 / 共享密钥 / 证书指纹</b> 填进下方表单。
+    </p>
+    <div class="install-row">
+      <code class="mono install-cmd" id="cmd-setup">curl -fsSL https://raw.githubusercontent.com/wd780h/cub-panel/main/deploy/setup-lxd-node.sh | sh</code>
+      <button class="btn btn-sm" type="button"
+              data-copy="curl -fsSL https://raw.githubusercontent.com/wd780h/cub-panel/main/deploy/setup-lxd-node.sh | sh">复制</button>
+    </div>
+    <p class="hint" style="margin:4px 0 8px">可选：<code>KVM=1</code> 装 QEMU；<code>EXISTING_BRIDGE=docker0</code> 共用现有网桥。</p>
+    <div class="install-row">
+      <code class="mono install-cmd" id="cmd-agent">curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- agent</code>
+      <button class="btn btn-sm" type="button"
+              data-copy="curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- agent">复制</button>
+    </div>
+  </div>
+
   <details class="panel" id="nodePanel">
     <summary>添加 / 编辑节点</summary>
     <div class="body">
