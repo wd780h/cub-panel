@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"cubpanel/internal/shared"
 	"cubpanel/internal/store"
 )
 
@@ -337,6 +338,11 @@ func (s *Server) handleAdminPlanSave(w http.ResponseWriter, r *http.Request) {
 	pl.ExtraBridges = formStr(r, "extra_bridges", 200)
 	pl.V4Pool = formStr(r, "v4_pool", 200)
 	pl.KeepSourceIP = formBool(r, "keep_source_ip")
+	pl.Mounts = formStr(r, "mounts", 1000)
+	if _, err := shared.ParseMounts(pl.Mounts); err != nil {
+		s.adminPlansError(w, r, "宿主机挂载格式不正确："+err.Error())
+		return
+	}
 	if pl.V4Pool != "" {
 		if err := store.ValidateReserved(pl.V4Pool); err != nil {
 			s.adminPlansError(w, r, "内网 IP 段格式不正确："+err.Error())

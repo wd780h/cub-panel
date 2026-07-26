@@ -10,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -158,6 +160,8 @@ type CreateRequest struct {
 	RateUpMbps   int `json:"rate_up_mbps,omitempty"`
 	// ExtraBridges attaches additional bridged NICs (eth2, eth3…) — VM multi-NIC.
 	ExtraBridges []string `json:"extra_bridges,omitempty"`
+	// Mounts binds host directories into the guest (admin-defined per plan).
+	Mounts []MountSpec `json:"mounts,omitempty"`
 	// VNC (VM only): host port + password for the SPICE/VNC console.
 	VNCPort int    `json:"vnc_port,omitempty"`
 	VNCPass string `json:"vnc_pass,omitempty"`
@@ -279,6 +283,54 @@ type RemoteImage struct {
 }
 
 // ISOInfo is one ISO file in a node's library.
+// MountSpec is one host-directory bind mount for an instance. Admin-defined
+// only — exposing host paths to tenants is a host-security decision.
+type MountSpec struct {
+	Source   string `json:"source"` // absolute host path
+	Path     string `json:"path"`   // absolute guest path
+	ReadOnly bool   `json:"read_only,omitempty"`
+}
+
+// ParseMounts parses "hostpath:guestpath[:ro]" specs, one per line or
+// comma-separated. Both paths must be absolute and clean; the guest path may
+// not be "/". At most 8 mounts.
+func ParseMounts(s string) ([]MountSpec, error) {
+	var out []MountSpec
+	for _, item := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == ',' }) {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		parts := strings.Split(item, ":")
+		if len(parts) < 2 || len(parts) > 3 {
+			return nil, fmt.Errorf("挂载格式应为 宿主机路径:容器路径[:ro] — %q", item)
+		}
+		m := MountSpec{Source: strings.TrimSpace(parts[0]), Path: strings.TrimSpace(parts[1])}
+		if len(parts) == 3 {
+			switch strings.TrimSpace(parts[2]) {
+			case "ro":
+				m.ReadOnly = true
+			case "rw", "":
+			default:
+				return nil, fmt.Errorf("挂载选项只支持 ro/rw — %q", item)
+			}
+		}
+		for _, p := range []string{m.Source, m.Path} {
+			if !strings.HasPrefix(p, "/") || path.Clean(p) != p || strings.Contains(p, "..") {
+				return nil, fmt.Errorf("路径必须是干净的绝对路径 — %q", p)
+			}
+		}
+		if m.Path == "/" {
+			return nil, fmt.Errorf("容器路径不能是 / — %q", item)
+		}
+		out = append(out, m)
+		if len(out) > 8 {
+			return nil, fmt.Errorf("最多 8 个挂载")
+		}
+	}
+	return out, nil
+}
+
 type ISOInfo struct {
 	Name      string `json:"name"`
 	SizeBytes int64  `json:"size_bytes"`

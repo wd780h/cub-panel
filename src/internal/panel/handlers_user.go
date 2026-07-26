@@ -339,6 +339,7 @@ func (s *Server) launch(ctx context.Context, sp launchSpec) (*store.Instance, st
 			PortFrom: alloc.PortFrom, PortTo: alloc.PortTo, V6Addr: alloc.V6Addr,
 			V4Addr:       alloc.V4Addr,
 			ExtraBridges: sp.plan.ExtraBridges,
+			Mounts:       sp.plan.Mounts,
 			Status:       "provisioning",
 		}
 		// VMs get a VNC console: a dedicated host port + an 8-char password
@@ -575,6 +576,9 @@ func buildCreateReq(node *store.Node, inst *store.Instance, features []string, k
 		RateDownMbps: inst.RateDownMbps, RateUpMbps: inst.RateUpMbps,
 		ExtraBridges: splitCSV(inst.ExtraBridges),
 		VNCPort:      inst.VNCPort, VNCPass: inst.VNCPass,
+		// Mounts were validated at plan-save time; a parse error here (old
+		// hand-edited data) simply yields no mounts.
+		Mounts:       func() []shared.MountSpec { m, _ := shared.ParseMounts(inst.Mounts); return m }(),
 		KeepSourceIP: keepSourceIP,
 		NATBridge:    node.NATBridge, NATAddr: inst.NATAddr, NATManaged: node.NATManaged,
 		SSHPort: inst.SSHPort, PortFrom: inst.PortFrom, PortTo: inst.PortTo,

@@ -44,6 +44,7 @@ glibc, Node or Python — **amd64 and arm64 supported**.
 | **KVM** | VNC console, **mount ISO** (boot from ISO), CPU masking, AES-NI passthrough, nested virtualization |
 | **Data** | **Snapshots** (create / restore / delete), **cross-node cold migration** (auto-rollback on failure, no data loss) |
 | **Images** | Pre-warm container / KVM variants per node, variant badges, checkbox image selection in plans (guarantees instant boot) |
+| **Mounts** | Plan-level **host-directory binds** (`src:dst[:ro]`, containers, admin-defined) |
 | **Billing** | Plan pricing + **balance provisioning** + activation codes; top-up via **Alipay / WeChat (epay) / USDT** + recharge API |
 | **Admin** | Multiple admins, site settings (name / announcement), audit log, node health probing |
 | **UX** | **Bilingual (中/EN)** with persistence, **light/dark theme** (follows OS + manual toggle) |

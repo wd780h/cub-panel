@@ -113,6 +113,13 @@
             <p class="hint">逗号分隔，为实例额外挂网卡（多网卡）。网桥须在各节点上已存在。</p>
           </div>
           <div class="field span2">
+            <label for="p-mounts">宿主机目录挂载</label>
+            <textarea id="p-mounts" name="mounts" rows="2" maxlength="1000" class="mono"
+                      placeholder="/data/share:/mnt/share:ro&#10;/data/pub:/srv/pub"></textarea>
+            <p class="hint">每行一条 <code>宿主机路径:容器路径[:ro]</code>，开机时挂进实例（最多 8 条）。
+              ⚠️ 挂载的目录对该套餐<b>所有用户</b>可见，谨慎选择路径。</p>
+          </div>
+          <div class="field span2">
             <label for="p-v4pool">内网 IP 段限制</label>
             <input id="p-v4pool" type="text" name="v4_pool" maxlength="200" class="mono"
                    placeholder="10.180.0.100-10.180.0.200">
@@ -190,6 +197,7 @@
             data-f-feat_aes="{{if .HasFeature "aes"}}1{{else}}0{{end}}"
             data-f-feat_cpuhide="{{if .HasFeature "cpuhide"}}1{{else}}0{{end}}"
             data-f-extra_bridges="{{.ExtraBridges}}"
+            data-f-mounts="{{.Mounts}}"
             data-f-v4_pool="{{.V4Pool}}"
             data-f-keep_source_ip="{{if .KeepSourceIP}}1{{else}}0{{end}}"
             data-f-images="{{.Images}}"

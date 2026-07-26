@@ -92,9 +92,13 @@ func runDialectSuite(t *testing.T, db *DB) {
 	if err != nil || nid == 0 {
 		t.Fatalf("SaveNode: id=%d err=%v", nid, err)
 	}
-	pid, err := db.SavePlan(ctx, &Plan{Name: "plan-" + uniq, CPU: 1, MemoryMB: 512, DiskGB: 10})
+	pid, err := db.SavePlan(ctx, &Plan{Name: "plan-" + uniq, CPU: 1, MemoryMB: 512, DiskGB: 10,
+		Mounts: "/data/share:/mnt/share:ro"})
 	if err != nil || pid == 0 {
 		t.Fatalf("SavePlan: id=%d err=%v", pid, err)
+	}
+	if p, err := db.PlanByID(ctx, pid); err != nil || p.Mounts != "/data/share:/mnt/share:ro" {
+		t.Fatalf("PlanByID mounts roundtrip: %+v err=%v", p, err)
 	}
 	iid, err := db.CreateInstance(ctx, &Instance{
 		UserID: uid, NodeID: nid, Name: "cub-" + uniq, Image: "debian/12",

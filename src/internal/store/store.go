@@ -87,12 +87,11 @@ func Open(driver, dsn string) (*DB, error) {
 	if err := db.execScript(string(schema)); err != nil {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
-	// PostgreSQL and MySQL schemas already carry every column, so they need no
-	// incremental migration; the SQLite base schema is grown by migrate().
-	if driver == SQLite {
-		if err := migrate(sdb); err != nil {
-			return nil, fmt.Errorf("migrate: %w", err)
-		}
+	// Grow pre-existing databases: the ALTERs parse on every dialect (with a
+	// TEXT→VARCHAR rewrite for MySQL) and an already-present column is
+	// tolerated.
+	if err := migrate(sdb, driver); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
 }
@@ -255,10 +254,11 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-// migrate brings pre-existing SQLite databases up to the current schema. CREATE
+// migrate brings pre-existing databases up to the current schema. CREATE
 // TABLE IF NOT EXISTS never adds columns, so late additions live here; each
-// ALTER is a no-op (tolerated error) when the column already exists.
-func migrate(sdb *sql.DB) error {
+// ALTER is a no-op (tolerated error) when the column already exists. MySQL
+// forbids DEFAULT on TEXT columns, so TEXT adds are rewritten to VARCHAR.
+func migrate(sdb *sql.DB, driver string) error {
 	for _, stmt := range []string{
 		`ALTER TABLE users ADD COLUMN balance_cents INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE plans ADD COLUMN price_cents INTEGER NOT NULL DEFAULT 0`,
@@ -295,9 +295,17 @@ func migrate(sdb *sql.DB) error {
 		`ALTER TABLE plans ADD COLUMN v4_pool TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE plans ADD COLUMN keep_source_ip INTEGER NOT NULL DEFAULT 1`,
 		`ALTER TABLE instances ADD COLUMN v4_addr TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE plans ADD COLUMN mounts TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE instances ADD COLUMN mounts TEXT NOT NULL DEFAULT ''`,
 	} {
+		if driver == MySQL {
+			stmt = strings.ReplaceAll(stmt, "TEXT NOT NULL DEFAULT", "VARCHAR(1024) NOT NULL DEFAULT")
+		}
 		if _, err := sdb.Exec(stmt); err != nil {
-			if strings.Contains(err.Error(), "duplicate column name") {
+			// Tolerated: sqlite "duplicate column name", mysql "Duplicate
+			// column name", postgres `column "x" ... already exists`.
+			msg := strings.ToLower(err.Error())
+			if strings.Contains(msg, "duplicate column") || strings.Contains(msg, "already exists") {
 				continue
 			}
 			return err

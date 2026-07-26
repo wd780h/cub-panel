@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS plans (
   extra_bridges  TEXT    NOT NULL DEFAULT '',          -- 附加网卡网桥，逗号分隔
   v4_pool        TEXT    NOT NULL DEFAULT '',          -- 内网 IP 段限制（须在节点网段内），如 10.180.0.100-10.180.0.200
   keep_source_ip INTEGER NOT NULL DEFAULT 1,           -- NAT 端口转发是否保留真实源 IP（DNAT）
+  mounts       TEXT    NOT NULL DEFAULT '',            -- 宿主机目录挂载 src:dst[:ro]（管理员配置）
   images       TEXT    NOT NULL DEFAULT 'debian/12,debian/13,alpine/3.21,alpine/3.22',
   price_cents  INTEGER NOT NULL DEFAULT 0,           -- 0 = 不可用余额开通
   duration_days INTEGER NOT NULL DEFAULT 30,
@@ -134,6 +135,7 @@ CREATE TABLE IF NOT EXISTS instances (
   rate_down_mbps   INTEGER NOT NULL DEFAULT 0,
   rate_up_mbps     INTEGER NOT NULL DEFAULT 0,
   extra_bridges    TEXT    NOT NULL DEFAULT '',
+  mounts           TEXT    NOT NULL DEFAULT '',        -- 宿主机目录挂载（随套餐复制）
   vnc_port         INTEGER NOT NULL DEFAULT 0,        -- KVM: 宿主机 VNC 端口
   vnc_pass         TEXT    NOT NULL DEFAULT '',       -- KVM: VNC 密码（DES 限 8 位）
   v4_addr          TEXT    NOT NULL DEFAULT '',       -- 独立公网 IPv4

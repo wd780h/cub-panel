@@ -50,6 +50,26 @@ func (s *Server) buildDevices(req *shared.CreateRequest) map[string]lxd.Device {
 			"size": fmt.Sprintf("%dGB", req.DiskGB),
 		},
 	}
+
+	// Host-directory binds (admin-defined per plan). Paths were validated in
+	// the panel; re-check here so a compromised panel cannot mount arbitrary
+	// junk like relative or dot-dot paths. shift maps ownership into the
+	// guest's user namespace (containers only).
+	for i, m := range req.Mounts {
+		if !strings.HasPrefix(m.Source, "/") || !strings.HasPrefix(m.Path, "/") ||
+			strings.Contains(m.Source, "..") || strings.Contains(m.Path, "..") || m.Path == "/" {
+			s.log("skipping invalid mount %q -> %q", m.Source, m.Path)
+			continue
+		}
+		d := lxd.Device{"type": "disk", "source": m.Source, "path": m.Path}
+		if m.ReadOnly {
+			d["readonly"] = "true"
+		}
+		if req.InstanceType != "vm" {
+			d["shift"] = "true"
+		}
+		dev[fmt.Sprintf("hostmnt%d", i)] = d
+	}
 	plan := planNICs(req.Mode)
 	nic := func(dname, bridge string) {
 		dev[dname] = withRateLimits(lxd.Device{
