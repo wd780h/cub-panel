@@ -194,6 +194,7 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
+ReadWritePaths=/opt/cub-panel /var/lib/cub-panel
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -203,6 +204,7 @@ SystemCallArchitectures=native
 [Install]
 WantedBy=multi-user.target
 UNIT
+		mkdir -p /var/lib/cub-panel
 		systemctl daemon-reload
 		systemctl enable --now cub-agent
 		systemctl restart cub-agent
@@ -214,15 +216,33 @@ UNIT
 
 	# --- wait for the cert fingerprint the panel needs to pin ---
 	FP=""; i=0
-	while [ $i -lt 10 ]; do
+	while [ $i -lt 15 ]; do
 		[ -f "$PANEL_HOME/agent-cert.pem.fp" ] && { FP="$(cat "$PANEL_HOME/agent-cert.pem.fp")"; break; }
 		i=$((i + 1)); sleep 1
 	done
+	# Fallback: derive it from the certificate directly (same SHA-256 over DER).
+	if [ -z "$FP" ] && [ -f "$PANEL_HOME/agent-cert.pem" ] && command -v openssl >/dev/null 2>&1; then
+		FP="$(openssl x509 -in "$PANEL_HOME/agent-cert.pem" -outform der 2>/dev/null | sha256sum | awk '{print $1}')"
+	fi
+	if [ -z "$FP" ]; then
+		warn "the agent did not come up — check it with:"
+		if command -v systemctl >/dev/null 2>&1; then
+			warn "  systemctl status cub-agent && journalctl -u cub-agent -n 30"
+		else
+			warn "  rc-service cub-agent status && tail -30 /var/log/cub-agent.log"
+		fi
+	fi
+	# Primary IP: the default-route source address; hostname -i is unreliable
+	# on Debian/Ubuntu (often empty or 127.0.1.1).
+	HOSTIP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1)"
+	[ -n "$HOSTIP" ] || HOSTIP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+	[ -n "$HOSTIP" ] || HOSTIP='<this-host-ip>'
+	PORT="$(sed -n 's/^CUB_AGENT_LISTEN=.*:\([0-9]*\)$/\1/p' "$ENV_FILE")"
 	echo
 	say "add this node in the panel with:"
-	printf '    Agent 地址 : https://%s:8788\n' "$(hostname -i 2>/dev/null | awk '{print $1}' || echo '<this-host-ip>')"
+	printf '    Agent 地址 : https://%s:%s\n' "$HOSTIP" "${PORT:-8788}"
 	printf '    共享密钥   : %s\n' "$(sed -n 's/^CUB_AGENT_SECRET=//p' "$ENV_FILE")"
-	printf '    证书指纹   : %s\n' "${FP:-见 /var/log/cub-agent.log}"
+	printf '    证书指纹   : %s\n' "${FP:-（未获取到，见上方排查命令）}"
 	echo
 	warn "the secret above is root-equivalent on this box — keep port 8788 off the public internet."
 	exit 0

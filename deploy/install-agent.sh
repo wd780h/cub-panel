@@ -114,6 +114,7 @@ if command -v rc-update >/dev/null 2>&1; then
 elif command -v systemctl >/dev/null 2>&1; then
 	say "installing systemd unit"
 	install -m 0644 "$SRC_DIR/deploy/systemd/cub-agent.service" /etc/systemd/system/cub-agent.service
+	mkdir -p /var/lib/cub-panel
 	systemctl daemon-reload
 	systemctl enable --now cub-agent
 	systemctl restart cub-agent
@@ -127,13 +128,27 @@ echo
 # Give the agent a moment to mint its certificate on first start.
 FP=""
 i=0
-while [ $i -lt 10 ]; do
+while [ $i -lt 15 ]; do
 	[ -f "$PANEL_HOME/agent-cert.pem.fp" ] && { FP="$(cat "$PANEL_HOME/agent-cert.pem.fp")"; break; }
 	i=$((i + 1)); sleep 1
 done
+if [ -z "$FP" ] && [ -f "$PANEL_HOME/agent-cert.pem" ] && command -v openssl >/dev/null 2>&1; then
+	FP="$(openssl x509 -in "$PANEL_HOME/agent-cert.pem" -outform der 2>/dev/null | sha256sum | awk '{print $1}')"
+fi
+if [ -z "$FP" ]; then
+	warn "the agent did not come up — check it with:"
+	if command -v systemctl >/dev/null 2>&1; then
+		warn "  systemctl status cub-agent && journalctl -u cub-agent -n 30"
+	else
+		warn "  rc-service cub-agent status && tail -30 /var/log/cub-agent.log"
+	fi
+fi
+HOSTIP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1)"
+[ -n "$HOSTIP" ] || HOSTIP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[ -n "$HOSTIP" ] || HOSTIP='<this-host-ip>'
 say "add this node in the panel with these values:"
-printf '    Agent 地址 : https://%s:8788\n' "$(hostname -i 2>/dev/null | awk '{print $1}' || echo '<this-host-ip>')"
+printf '    Agent 地址 : https://%s:8788\n' "$HOSTIP"
 printf '    共享密钥   : %s\n' "$(sed -n 's/^CUB_AGENT_SECRET=//p' "$ENV_FILE")"
-printf '    证书指纹   : %s\n' "${FP:-启动后见 /var/log/cub-agent.log}"
+printf '    证书指纹   : %s\n' "${FP:-（未获取到，见上方排查命令）}"
 echo
 warn "the secret above is equivalent to root on this box — keep the agent port off the public internet."
