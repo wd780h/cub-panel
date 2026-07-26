@@ -1,0 +1,41 @@
+# cub-panel master in Docker, on the host network.
+#
+#   cd deploy/docker && docker compose up -d --build
+#
+# host network mode is used so the panel reaches agents directly on their
+# private / WireGuard addresses (agent port 8788) with no port mapping, and so
+# CUB_PANEL_TRUST_PROXY / client IPs behave as on a bare-metal install.
+# In host mode published ports are ignored: the panel binds host :8080 directly.
+
+services:
+  cub-panel:
+    build:
+      # Repository root, two levels up from this file.
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: cub-panel:latest
+    container_name: cub-panel
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # Change the port here (host network → this is the real host port).
+      CUB_PANEL_LISTEN: "0.0.0.0:8080"
+      CUB_PANEL_SITE: "Cub Panel"
+      CUB_PANEL_ALLOW_SIGNUP: "1"
+      # Set to 1 when a TLS-terminating reverse proxy sits in front.
+      CUB_PANEL_SECURE_COOKIES: "0"
+      CUB_PANEL_TRUST_PROXY: "0"
+
+      # --- database: default SQLite on the volume below ---
+      CUB_PANEL_DB_DRIVER: "sqlite"
+      CUB_PANEL_DB: "/data/panel.db"
+      # --- or connect an existing PostgreSQL / MySQL instead (not installed here) ---
+      # CUB_PANEL_DB_DRIVER: "postgres"
+      # CUB_PANEL_DB_DSN: "postgres://user:pass@127.0.0.1:5432/cub?sslmode=disable"
+      # CUB_PANEL_DB_DRIVER: "mysql"
+      # CUB_PANEL_DB_DSN: "user:pass@tcp(127.0.0.1:3306)/cub"
+    volumes:
+      - cub-data:/data
+
+volumes:
+  cub-data:

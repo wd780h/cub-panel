@@ -1,0 +1,13 @@
+# Keep the Docker build context small and free of build artifacts / secrets.
+.git
+bin/
+data/
+*.db
+*.db-*
+*.env
+isos/
+agent-cert.pem*
+agent-key.pem
+.claude/
+docs/
+*.md

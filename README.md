@@ -105,6 +105,25 @@ curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.
 
 ---
 
+## 🐳 Docker 部署面板端
+
+主控可用 Docker 跑，采用 **host 网络模式**：直连各节点 agent（8788）、无需端口映射、
+客户端真实 IP 行为与裸机一致。
+
+```sh
+git clone https://github.com/wd780h/cub-panel.git
+cd cub-panel/deploy/docker
+docker compose up -d --build
+```
+
+- 端口在 `docker-compose.yml` 的 `CUB_PANEL_LISTEN` 改（host 模式下即宿主机真实端口，默认 8080）。
+- 默认 SQLite 存到命名卷 `cub-data`；接 PostgreSQL/MySQL 把注释里的
+  `CUB_PANEL_DB_DRIVER` / `CUB_PANEL_DB_DSN` 打开即可（镜像**只连接、不含数据库**）。
+- 镜像多阶段构建、纯静态无 cgo、基于 Alpine。**只容器化主控**——被控 `cub-agent`
+  需装在每台 Incus 宿主机上（要访问本机内核与 Incus socket），照常用安装脚本。
+
+---
+
 ## 🌐 网络模式
 
 节点可**同时**开 NAT、独立 IPv6、独立公网 IPv4 三个池，套餐按需挑组合：

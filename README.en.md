@@ -109,6 +109,28 @@ you bring an existing instance and supply a DSN.
 
 ---
 
+## 🐳 Docker (master)
+
+The master runs in Docker using **host network mode**: it reaches agents directly on
+their private addresses (port 8788), needs no port mapping, and client-IP behaviour
+matches a bare-metal install.
+
+```sh
+git clone https://github.com/wd780h/cub-panel.git
+cd cub-panel/deploy/docker
+docker compose up -d --build
+```
+
+- Change the port via `CUB_PANEL_LISTEN` in `docker-compose.yml` (host mode → that's the
+  real host port, default 8080).
+- SQLite defaults to the named volume `cub-data`; to use PostgreSQL/MySQL, uncomment
+  `CUB_PANEL_DB_DRIVER` / `CUB_PANEL_DB_DSN` (the image **only connects, no DB inside**).
+- Multi-stage build, fully static (no cgo), Alpine runtime. **Only the master is
+  containerised** — the `cub-agent` must run on each Incus host (it needs the host kernel
+  and Incus socket), installed the usual way.
+
+---
+
 ## 🌐 Network modes
 
 A node can enable NAT, dedicated IPv6 and dedicated public IPv4 pools **simultaneously**;
