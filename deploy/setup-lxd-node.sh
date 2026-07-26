@@ -9,11 +9,21 @@ NAT_BRIDGE="${NAT_BRIDGE:-lxdbr0}"
 NAT_SUBNET="${NAT_SUBNET:-10.180.0.1/24}"   # bridge address, /24 by default
 EXISTING_BRIDGE="${EXISTING_BRIDGE:-}"      # e.g. docker0/br0: reuse it, skip creation
 POOL="${POOL:-default}"
-# Pool driver. Disk quotas (and a correct in-guest `df`) need a real volume
-# driver: lvm (thin, loop-backed — the default here) or btrfs. The dir driver
-# silently ignores the root-disk size and guests see the host filesystem.
-POOL_DRIVER="${POOL_DRIVER:-lvm}"
-POOL_SIZE="${POOL_SIZE:-}"                  # loop file size for lvm/btrfs, e.g. 100GiB; empty = incus default (~20%%, min 5GiB)
+# Pool driver. Disk quotas need a real volume driver — the dir driver silently
+# ignores the root-disk size and guests see the host filesystem in df.
+#   auto (default): lvm thin when the kernel has dm-thin — quotas enforced AND
+#                   in-guest df shows the plan size exactly; else dir + warning.
+# POOL_DRIVER=btrfs forces btrfs (quotas enforce, but df shows the pool size).
+POOL_DRIVER="${POOL_DRIVER:-auto}"
+# Loop file size for lvm/btrfs. "auto" (default) sizes it to ~90% of the free
+# space on /var/lib (min 5GiB) — the loop file is sparse, so it only consumes
+# disk as instances actually write. Ignored when POOL_DEVICE is set.
+POOL_SIZE="${POOL_SIZE:-auto}"
+# Dedicated block device for the pool (e.g. POOL_DEVICE=/dev/sdb): the whole
+# disk is handed to the driver — no loop file, better performance. The device
+# must be empty; set POOL_WIPE=1 to destroy existing data/partitions on it.
+POOL_DEVICE="${POOL_DEVICE:-}"
+POOL_WIPE="${POOL_WIPE:-0}"
 V6_BRIDGE="${V6_BRIDGE:-}"                  # e.g. br0; leave empty to skip
 V6_CIDR="${V6_CIDR:-}"                      # e.g. 2a01:4f8:1:2::/64
 V4_BRIDGE="${V4_BRIDGE:-}"                  # dedicated public IPv4 bridge; leave empty to skip
@@ -149,35 +159,72 @@ fi
 
 # ---------- storage pool ----------
 
-# LVM thin pools need the dm-thin kernel module, the LVM userspace and
-# mkfs.ext4; per-instance volumes then enforce the plan's disk size and the
-# guest's `df` reports it exactly.
-if [ "$POOL_DRIVER" = "lvm" ]; then
-	if modprobe dm_thin_pool 2>/dev/null; then
-		echo dm_thin_pool >> /etc/modules-load.d/cub-panel.conf 2>/dev/null || true
-		sort -u /etc/modules-load.d/cub-panel.conf -o /etc/modules-load.d/cub-panel.conf 2>/dev/null || true
-		if command -v apk >/dev/null 2>&1; then
-			apk add -q lvm2 thin-provisioning-tools e2fsprogs e2fsprogs-extra
-		else
-			DEBIAN_FRONTEND=noninteractive apt-get install -y -q lvm2 thin-provisioning-tools e2fsprogs >/dev/null
-		fi
+# have_lvm / have_btrfs probe what this kernel can actually do.
+have_lvm()   { modprobe dm_thin_pool 2>/dev/null; }
+have_btrfs() { modprobe btrfs 2>/dev/null || grep -qw btrfs /proc/filesystems; }
+
+# Resolve auto → concrete driver: lvm thin (quotas enforced AND in-guest df
+# shows the plan size exactly); dir as a last resort with a loud warning.
+# btrfs is available only when forced with POOL_DRIVER=btrfs — its quotas
+# enforce but in-guest df shows the pool size, which confuses tenants.
+if [ "$POOL_DRIVER" = "auto" ]; then
+	if have_lvm; then
+		POOL_DRIVER=lvm
 	else
-		warn "kernel lacks dm_thin_pool — falling back to btrfs"
-		POOL_DRIVER=btrfs
-	fi
-fi
-if [ "$POOL_DRIVER" = "btrfs" ]; then
-	if modprobe btrfs 2>/dev/null || grep -qw btrfs /proc/filesystems; then
-		if command -v apk >/dev/null 2>&1; then apk add -q btrfs-progs; else DEBIAN_FRONTEND=noninteractive apt-get install -y -q btrfs-progs >/dev/null; fi
-	else
-		warn "kernel lacks btrfs too — falling back to dir. Disk sizes will NOT be enforced"
-		warn "and guests will see the host filesystem in df. Fix the kernel and re-run with POOL_DRIVER=lvm."
 		POOL_DRIVER=dir
 	fi
 fi
 
+case "$POOL_DRIVER" in
+lvm)
+	have_lvm || die "POOL_DRIVER=lvm but the kernel lacks dm_thin_pool"
+	echo dm_thin_pool >> /etc/modules-load.d/cub-panel.conf 2>/dev/null || true
+	sort -u /etc/modules-load.d/cub-panel.conf -o /etc/modules-load.d/cub-panel.conf 2>/dev/null || true
+	if command -v apk >/dev/null 2>&1; then
+		apk add -q lvm2 thin-provisioning-tools e2fsprogs e2fsprogs-extra
+	else
+		DEBIAN_FRONTEND=noninteractive apt-get install -y -q lvm2 thin-provisioning-tools e2fsprogs >/dev/null
+	fi
+	;;
+btrfs)
+	have_btrfs || die "POOL_DRIVER=btrfs but the kernel lacks btrfs"
+	if command -v apk >/dev/null 2>&1; then apk add -q btrfs-progs; else DEBIAN_FRONTEND=noninteractive apt-get install -y -q btrfs-progs >/dev/null; fi
+	;;
+dir)
+	warn "using the dir driver: disk sizes will NOT be enforced and guests see the"
+	warn "host filesystem in df. Only for testing — use a kernel with dm-thin or btrfs."
+	;;
+*) die "unknown POOL_DRIVER '$POOL_DRIVER' (use auto, lvm, btrfs or dir)" ;;
+esac
+
+# A dedicated device takes the whole disk; otherwise a sparse loop file is
+# created, sized by POOL_SIZE (auto → ~90% of the free space, min 5GiB).
+if [ -n "$POOL_DEVICE" ]; then
+	[ "$POOL_DRIVER" != "dir" ] || die "POOL_DEVICE needs a volume driver (lvm/btrfs), not dir"
+	[ -b "$POOL_DEVICE" ] || die "POOL_DEVICE $POOL_DEVICE is not a block device"
+	# Refuse a disk that already carries data unless the operator opts in —
+	# handing it to the pool destroys everything on it.
+	if command -v blkid >/dev/null 2>&1 && blkid "$POOL_DEVICE" >/dev/null 2>&1; then
+		if [ "$POOL_WIPE" = "1" ]; then
+			say "wiping existing signatures on $POOL_DEVICE (POOL_WIPE=1)"
+			command -v wipefs >/dev/null 2>&1 && wipefs -a "$POOL_DEVICE" >/dev/null
+		else
+			die "$POOL_DEVICE has an existing filesystem/partition table. Re-run with POOL_WIPE=1 to destroy it."
+		fi
+	fi
+elif [ "$POOL_SIZE" = "auto" ] && [ "$POOL_DRIVER" != "dir" ]; then
+	AVAIL_GB="$(df -Pk /var/lib 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')"
+	POOL_SIZE="$(( AVAIL_GB * 9 / 10 ))"
+	[ "$POOL_SIZE" -ge 5 ] || POOL_SIZE=5
+	POOL_SIZE="${POOL_SIZE}GiB"
+	say "auto pool size: $POOL_SIZE (90% of ${AVAIL_GB}GiB free)"
+fi
+
 if "$LXC" storage show "$POOL" >/dev/null 2>&1; then
 	say "storage pool '$POOL' already exists ($("$LXC" storage show "$POOL" | sed -n 's/^driver: //p'))"
+elif [ -n "$POOL_DEVICE" ]; then
+	say "creating storage pool '$POOL' ($POOL_DRIVER on $POOL_DEVICE — whole device)"
+	"$LXC" storage create "$POOL" "$POOL_DRIVER" source="$POOL_DEVICE"
 else
 	say "creating storage pool '$POOL' ($POOL_DRIVER${POOL_SIZE:+, $POOL_SIZE})"
 	if [ -n "$POOL_SIZE" ] && [ "$POOL_DRIVER" != "dir" ]; then

@@ -74,9 +74,11 @@ curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.
 
 脚本结尾会打印 **Agent 地址 + 共享密钥 + 证书指纹**，照抄进面板。
 
-> 💾 存储池默认建成 **LVM thin**（loop 文件，`POOL_SIZE=100GiB` 可指定大小）：
-> 套餐磁盘限额真实生效，容器内 `df` 精确显示套餐容量。`POOL_DRIVER=btrfs` 可换
-> btrfs（限额生效但 df 显示池大小）；**dir 池不限容量**，仅建议测试用。
+> 💾 存储池自动建成 **LVM thin**：套餐磁盘限额真实生效，容器内 `df` 精确显示套餐容量。
+> 默认用 loop 稀疏文件（自动取空闲磁盘的 ~90%，`POOL_SIZE=100GiB` 可指定）；
+> **`POOL_DEVICE=/dev/sdb` 可把整块盘交给存储池**（免 loop、性能更好，盘上有数据需加
+> `POOL_WIPE=1` 确认清盘）。`POOL_DRIVER=btrfs` 可强制 btrfs（限额生效但 df 显示池大小）；
+> **dir 池不限容量**，仅建议测试。
 
 ### 3. 在面板里添加节点
 

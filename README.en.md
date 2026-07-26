@@ -76,10 +76,12 @@ curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.
 
 The script prints the **agent address + shared secret + certificate fingerprint** — copy them into the panel.
 
-> 💾 The storage pool defaults to **LVM thin** (loop-backed; set the size with
-> `POOL_SIZE=100GiB`): plan disk quotas are actually enforced and `df` inside the guest
-> reports the plan size exactly. `POOL_DRIVER=btrfs` also enforces quotas (df shows the
-> pool size); the **dir driver enforces nothing** — test setups only.
+> 💾 The storage pool is auto-created as **LVM thin**: plan disk quotas are actually
+> enforced and `df` inside the guest reports the plan size exactly. By default it's a
+> sparse loop file (~90% of free space; override with `POOL_SIZE=100GiB`);
+> **`POOL_DEVICE=/dev/sdb` hands a whole disk to the pool** (no loop, better performance;
+> add `POOL_WIPE=1` to confirm wiping a non-empty disk). `POOL_DRIVER=btrfs` forces btrfs
+> (quotas enforce, df shows the pool size); the **dir driver enforces nothing** — test only.
 
 ### 3. Add the node in the panel
 
