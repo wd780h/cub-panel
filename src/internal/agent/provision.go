@@ -569,9 +569,21 @@ fi
 const scriptDebian = `set -e
 echo "root:$ICP_PW" | chpasswd
 ` + scriptCommonNetApply + `
+# Package mirrors can be a moment behind the interface coming up, so retry
+# before giving up. A guest with no sshd is useless to the tenant, hence the
+# hard failure at the end rather than a silently broken "running" instance.
 if ! command -v sshd >/dev/null 2>&1; then
-  apt-get update -qq >/dev/null 2>&1 || true
-  apt-get install -y -qq --no-install-recommends openssh-server iproute2 >/dev/null 2>&1 || true
+  i=1
+  while [ $i -le 3 ]; do
+    apt-get update -qq >/dev/null 2>&1 || true
+    apt-get install -y -qq --no-install-recommends openssh-server iproute2 >/dev/null 2>&1 || true
+    command -v sshd >/dev/null 2>&1 && break
+    i=$((i + 1)); sleep 5
+  done
+fi
+if ! command -v sshd >/dev/null 2>&1; then
+  echo "openssh-server install failed — the guest cannot reach the package mirrors (check the node's NAT egress/DNS)" >&2
+  exit 90
 fi
 if [ -f /etc/ssh/sshd_config ]; then
   sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -593,13 +605,36 @@ UNIT
   systemctl enable cub-panel-net.service >/dev/null 2>&1 || true
 fi
 systemctl enable ssh >/dev/null 2>&1 || true
-systemctl restart ssh >/dev/null 2>&1 || service ssh restart >/dev/null 2>&1 || true
+ssh-keygen -A >/dev/null 2>&1 || true
+systemctl restart ssh >/dev/null 2>&1 || service ssh restart >/dev/null 2>&1 || /usr/sbin/sshd >/dev/null 2>&1 || true
+i=1
+while [ $i -le 5 ]; do
+  ss -ltn 2>/dev/null | grep -q ':22 ' && exit 0
+  netstat -ltn 2>/dev/null | grep -q ':22 ' && exit 0
+  sleep 1; i=$((i + 1))
+done
+echo "sshd installed but not listening on :22" >&2
+exit 91
 `
 
 const scriptAlpine = `set -e
 echo "root:$ICP_PW" | chpasswd
 ` + scriptCommonNetApply + `
-apk add --no-cache openssh iproute2 >/dev/null 2>&1 || true
+# Retry: the mirror may not be reachable the instant the NIC comes up. A guest
+# without sshd is useless to the tenant, so fail loudly instead of leaving a
+# silently broken "running" instance.
+if ! command -v sshd >/dev/null 2>&1; then
+  i=1
+  while [ $i -le 3 ]; do
+    apk add --no-cache openssh iproute2 >/dev/null 2>&1 || true
+    command -v sshd >/dev/null 2>&1 && break
+    i=$((i + 1)); sleep 5
+  done
+fi
+if ! command -v sshd >/dev/null 2>&1; then
+  echo "openssh install failed — the guest cannot reach the package mirrors (check the node's NAT egress/DNS)" >&2
+  exit 90
+fi
 if [ -f /etc/ssh/sshd_config ]; then
   sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
   sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
@@ -610,5 +645,16 @@ if [ -x /usr/local/sbin/cub-panel-net-apply ]; then
   rc-update add local default >/dev/null 2>&1 || true
 fi
 rc-update add sshd default >/dev/null 2>&1 || true
+# ssh-keygen -A is a no-op once host keys exist; without them sshd refuses to
+# start on a fresh image.
+ssh-keygen -A >/dev/null 2>&1 || true
 rc-service sshd restart >/dev/null 2>&1 || /usr/sbin/sshd >/dev/null 2>&1 || true
+i=1
+while [ $i -le 5 ]; do
+  netstat -ltn 2>/dev/null | grep -q ':22 ' && exit 0
+  ss -ltn 2>/dev/null | grep -q ':22 ' && exit 0
+  sleep 1; i=$((i + 1))
+done
+echo "sshd installed but not listening on :22" >&2
+exit 91
 `

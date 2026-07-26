@@ -122,6 +122,11 @@ func (c *Client) WaitOp(ctx context.Context, op string) error {
 		Status     string `json:"status"`
 		StatusCode int    `json:"status_code"`
 		Err        string `json:"err"`
+		// Metadata.return carries an exec'd command's exit status. A pointer
+		// tells "absent" (non-exec operations) apart from a genuine 0.
+		Metadata struct {
+			Return *int `json:"return"`
+		} `json:"metadata"`
 	}
 	if len(r.Metadata) > 0 {
 		if err := json.Unmarshal(r.Metadata, &meta); err != nil {
@@ -134,6 +139,11 @@ func (c *Client) WaitOp(ctx context.Context, op string) error {
 	// 200..399 are the LXD success range; anything else is a failure.
 	if meta.StatusCode >= 400 {
 		return fmt.Errorf("lxd operation failed: %s", meta.Status)
+	}
+	// An exec whose command failed still reports a successful *operation*, so
+	// the command's own exit status has to be checked separately.
+	if meta.Metadata.Return != nil && *meta.Metadata.Return != 0 {
+		return fmt.Errorf("command exited with status %d", *meta.Metadata.Return)
 	}
 	return nil
 }
