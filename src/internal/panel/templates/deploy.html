@@ -29,14 +29,9 @@
             <label for="rc-image">操作系统（可选）</label>
             <select id="rc-image" name="image">
               <option value="">使用套餐默认系统</option>
-              <option value="debian/12">Debian 12</option>
-              <option value="debian/13">Debian 13</option>
-              <option value="ubuntu/noble">Ubuntu 24.04</option>
-              <option value="alpine/3.21">Alpine 3.21</option>
-              <option value="alpine/3.22">Alpine 3.22</option>
-              <option value="alpine/edge">Alpine edge</option>
+              {{range $.Data.RedeemImages}}<option value="{{.}}">{{.}}</option>{{end}}
             </select>
-            <p class="hint">若所选系统不在套餐允许范围内，开通会被拒绝。</p>
+            <p class="hint">留空即用激活码所属套餐的默认系统；所选系统须在该套餐允许范围内。</p>
           </div>
           <div class="field">
             <label for="rc-label">备注名（可选）</label>
@@ -83,7 +78,7 @@
         <div class="field">
           <label>操作系统</label>
           <select name="image">
-            {{range .ImageList}}<option value="{{.}}">{{.}}</option>{{end}}
+            {{range .Images}}<option value="{{.}}">{{.}}</option>{{end}}
           </select>
         </div>
         <div class="field">

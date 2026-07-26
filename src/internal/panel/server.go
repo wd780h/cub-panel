@@ -45,13 +45,15 @@ type Server struct {
 		redeem *limiter
 		action *limiter
 	}
+	// avail caches which images each node can actually deliver.
+	avail *availCache
 }
 
 // New builds the panel server and parses templates.
 func New(cfg Config, db *store.DB) (*Server, error) {
 	trustProxy = cfg.TrustProxy
 
-	s := &Server{cfg: cfg, db: db}
+	s := &Server{cfg: cfg, db: db, avail: newAvailCache()}
 	s.limits.login = newLimiter(8, 10*time.Minute)
 	s.limits.signup = newLimiter(5, time.Hour)
 	s.limits.redeem = newLimiter(10, 10*time.Minute)

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -76,13 +77,52 @@ func (s *Server) deployPage(r *http.Request) *page {
 		p.Data["Balance"] = u.BalanceCents
 	}
 	plans, _ := s.db.ListPlans(ctx, true)
-	var buyable []*store.Plan
+	// Offer only images a node able to host the plan can actually deliver, so
+	// a typo'd or withdrawn alias never reaches a buyer. A plan left with no
+	// deliverable image is not purchasable at all.
+	type buyablePlan struct {
+		*store.Plan
+		Images []string
+	}
+	var buyable []buyablePlan
 	for _, pl := range plans {
-		if pl.PriceCents > 0 {
-			buyable = append(buyable, pl)
+		if pl.PriceCents <= 0 {
+			continue
 		}
+		imgs := s.planImages(ctx, pl)
+		if len(imgs) == 0 {
+			continue
+		}
+		buyable = append(buyable, buyablePlan{Plan: pl, Images: imgs})
 	}
 	p.Data["Plans"] = buyable
+
+	// The activation-code form cannot know which plan a code belongs to until
+	// it is redeemed, so it offers the union of every deliverable image; the
+	// redeem handler still enforces the code's own plan.
+	seen := map[string]bool{}
+	var redeemImgs []string
+	for _, bp := range buyable {
+		for _, a := range bp.Images {
+			if !seen[a] {
+				seen[a] = true
+				redeemImgs = append(redeemImgs, a)
+			}
+		}
+	}
+	for _, pl := range plans {
+		if pl.PriceCents > 0 {
+			continue // already covered above
+		}
+		for _, a := range s.planImages(ctx, pl) {
+			if !seen[a] {
+				seen[a] = true
+				redeemImgs = append(redeemImgs, a)
+			}
+		}
+	}
+	sort.Strings(redeemImgs)
+	p.Data["RedeemImages"] = redeemImgs
 	txs, _ := s.db.ListTransactions(ctx, p.User.ID, 10)
 	p.Data["Transactions"] = txs
 	return p
