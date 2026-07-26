@@ -67,7 +67,8 @@ curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.
 ### 2. 准备一台宿主机
 
 ```sh
-# 先装 Incus、建网桥与存储池（可选 KVM=1 装 QEMU；EXISTING_BRIDGE=docker0 共用现有网桥）
+# 先装 Incus、建网桥与存储池 —— 会询问 NAT 内网网段（回车用默认 10.180.0.1/24）
+# 可选：KVM=1 装 QEMU；EXISTING_BRIDGE=docker0 共用现有网桥；NAT_SUBNET=… 免交互
 curl -fsSL https://raw.githubusercontent.com/wd780h/cub-panel/main/deploy/setup-lxd-node.sh | sh
 # 再装被控 —— 自动加载内核模块、生成密钥 + 10 年自签证书
 curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- agent

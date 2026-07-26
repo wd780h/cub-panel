@@ -69,7 +69,8 @@ Afterwards set `CUB_PANEL_ALLOW_SIGNUP=0` to close public sign-up and restart.
 ### 2. Prepare a host node
 
 ```sh
-# First install Incus, bridge & storage pool (KVM=1 to add QEMU; EXISTING_BRIDGE=docker0 to reuse a bridge)
+# First install Incus, bridge & storage pool — prompts for the NAT subnet (Enter = 10.180.0.1/24)
+# Options: KVM=1 adds QEMU; EXISTING_BRIDGE=docker0 reuses a bridge; NAT_SUBNET=… skips the prompt
 curl -fsSL https://raw.githubusercontent.com/wd780h/cub-panel/main/deploy/setup-lxd-node.sh | sh
 # Then install the agent — auto-loads kernel modules, generates key + 10-year cert
 curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- agent

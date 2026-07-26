@@ -6,7 +6,10 @@
 set -eu
 
 NAT_BRIDGE="${NAT_BRIDGE:-lxdbr0}"
-NAT_SUBNET="${NAT_SUBNET:-10.180.0.1/24}"   # bridge address, /24 by default
+# NAT subnet (bridge address form). Empty = ask interactively (Enter keeps the
+# default); preset NAT_SUBNET=… to skip the prompt in automation.
+NAT_SUBNET="${NAT_SUBNET:-}"
+DEFAULT_NAT_SUBNET="10.180.0.1/24"
 EXISTING_BRIDGE="${EXISTING_BRIDGE:-}"      # e.g. docker0/br0: reuse it, skip creation
 POOL="${POOL:-default}"
 # Pool driver. Disk quotas need a real volume driver — the dir driver silently
@@ -37,6 +40,39 @@ warn() { printf '\033[33m!!\033[0m %s\n' "$*"; }
 die()  { printf '\033[31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" = "0" ] || die "please run as root"
+
+# ---------- NAT subnet (interactive) ----------
+#
+# Asked up front so the operator is not surprised mid-install. Reads from
+# /dev/tty so it works under `curl … | sh`. A network-form answer (….0/24) is
+# converted to the bridge-gateway form Incus expects.
+if [ -z "$NAT_SUBNET" ]; then
+	if [ -z "$EXISTING_BRIDGE" ] && [ -e /dev/tty ]; then
+		while :; do
+			printf 'NAT 内网网段（网桥地址形式，回车默认 %s）:\n> ' "$DEFAULT_NAT_SUBNET"
+			read ans </dev/tty || ans=""
+			ans="$(printf %s "$ans" | tr -d ' ')"
+			if [ -z "$ans" ]; then
+				NAT_SUBNET="$DEFAULT_NAT_SUBNET"
+				break
+			fi
+			if printf %s "$ans" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$'; then
+				case "$ans" in
+				*.0/*)
+					NAT_SUBNET="$(printf %s "$ans" | sed 's#\.0/#.1/#')"
+					say "已把网络地址转为网桥网关形式：$NAT_SUBNET" ;;
+				*)
+					NAT_SUBNET="$ans" ;;
+				esac
+				break
+			fi
+			warn "格式不对，应形如 10.66.0.1/24"
+		done
+	else
+		NAT_SUBNET="$DEFAULT_NAT_SUBNET"
+	fi
+fi
+say "NAT 网段：$NAT_SUBNET"
 
 # ---------- install Incus ----------
 #
@@ -251,6 +287,14 @@ if [ -n "$EXISTING_BRIDGE" ]; then
 	[ -n "$BR_CIDR" ] && NAT_SUBNET="$BR_CIDR"
 elif "$LXC" network show "$NAT_BRIDGE" >/dev/null 2>&1; then
 	say "network '$NAT_BRIDGE' already exists"
+	# The bridge's real subnet wins over whatever was entered — the panel must
+	# be told the truth or every provision fails with a device-IP error.
+	CUR_ADDR="$("$LXC" network get "$NAT_BRIDGE" ipv4.address 2>/dev/null)"
+	if [ -n "$CUR_ADDR" ] && [ "$CUR_ADDR" != "none" ] && [ "$CUR_ADDR" != "$NAT_SUBNET" ]; then
+		warn "该网桥实际网段是 $CUR_ADDR（输入的 $NAT_SUBNET 已忽略）。"
+		warn "想改用新网段请先执行：$LXC network set $NAT_BRIDGE ipv4.address=$NAT_SUBNET"
+		NAT_SUBNET="$CUR_ADDR"
+	fi
 else
 	say "creating NAT bridge '$NAT_BRIDGE' on $NAT_SUBNET"
 	"$LXC" network create "$NAT_BRIDGE" \
