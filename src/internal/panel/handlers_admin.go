@@ -230,12 +230,33 @@ func (s *Server) handleAdminNodeProbe(w http.ResponseWriter, r *http.Request) {
 	// Config sanity: a managed NAT bridge whose real subnet differs from the
 	// panel's nat_subnet makes every provision fail with an Incus device
 	// error, so surface the mismatch right here on the probe.
+	var warns []string
 	if node.NATManaged {
 		if addr, ok := info.Bridges[node.NATBridge]; ok {
 			if warn := subnetMismatch(node.NATBridge, node.NATSubnet, addr); warn != "" {
-				info.Warning = warn
+				warns = append(warns, warn)
 			}
 		}
+	}
+	// A configured pool the node does not have fails every provision with
+	// "Storage pool not found" — catch it here instead.
+	if len(info.Pools) > 0 && node.StoragePool != "" {
+		found := false
+		for _, p := range info.Pools {
+			if p == node.StoragePool {
+				found = true
+				break
+			}
+		}
+		if !found {
+			warns = append(warns, fmt.Sprintf(
+				"存储池不存在：面板配置的 %q 在该节点上没有（现有：%s）。"+
+					"把本节点「存储池」改成现有名称，或在节点上执行 incus storage create %s lvm size=50GiB",
+				node.StoragePool, strings.Join(info.Pools, ", "), node.StoragePool))
+		}
+	}
+	if len(warns) > 0 {
+		info.Warning = strings.Join(warns, "；")
 	}
 	_ = s.db.TouchNode(context.Background(), node.ID, "ok")
 	s.jsonOK(w, info)

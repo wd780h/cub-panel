@@ -148,6 +148,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request, _ []byte) 
 	}
 	info.MemTotal, info.MemFree = memInfo()
 	info.Load1 = loadAvg1()
+	// Pool names let the panel catch a missing configured pool at probe time.
+	if pools, err := s.lxd.StoragePools(ctx); err == nil {
+		for _, p := range pools {
+			info.Pools = append(info.Pools, p.Name)
+		}
+	}
 	// Managed bridge subnets let the panel catch NAT-subnet mismatches at
 	// probe time instead of at the first failed provision.
 	if nets, err := s.lxd.Networks(ctx); err == nil {

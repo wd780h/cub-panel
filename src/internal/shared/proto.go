@@ -267,6 +267,9 @@ type NodeInfo struct {
 	// Bridges maps each managed network to its ipv4.address ("10.1.2.1/24"),
 	// so the panel can spot a NAT-subnet mismatch before provisioning fails.
 	Bridges map[string]string `json:"bridges,omitempty"`
+	// Pools lists the node's storage pool names, so the panel can spot a
+	// missing configured pool before provisioning fails.
+	Pools []string `json:"pools,omitempty"`
 	// Warning is filled by the panel's probe when it detects a config mismatch.
 	Warning string `json:"warning,omitempty"`
 }
