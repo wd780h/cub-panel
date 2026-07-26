@@ -52,18 +52,12 @@ KVM 虚拟机。用户凭激活码或账户余额自助开机，管理员在后�
 
 ## 🚀 快速开始
 
-先拿到二进制 —— 从 [Releases](https://github.com/wd780h/cub-panel/releases)
-下载对应架构的 `bin/`，或从源码自行编译：
-
-```sh
-git clone https://github.com/wd780h/cub-panel.git
-cd cub-panel/deploy && sh ./build.sh      # 需 Go 1.25+，产物在 ../bin/
-```
+无需 Go、无需源码 —— 一键脚本自动下载对应架构（amd64 / arm64）的预编译二进制并装成服务。
 
 ### 1. 部署主控（面板机）
 
 ```sh
-cd deploy && sh ./install-panel.sh
+curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- panel
 ```
 
 访问 `http://<面板机IP>:8080/register` —— **第一个注册的账号自动成为管理员**。
@@ -72,9 +66,10 @@ cd deploy && sh ./install-panel.sh
 ### 2. 准备一台宿主机
 
 ```sh
-cd deploy && sh ./setup-lxd-node.sh          # 自动装 Incus、建网桥与存储池
-# 可选：KVM=1 装 QEMU；EXISTING_BRIDGE=docker0 共用现有网桥
-sh ./install-agent.sh                        # 装被控，自动生成密钥 + 10 年自签证书
+# 先装 Incus、建网桥与存储池（可选 KVM=1 装 QEMU；EXISTING_BRIDGE=docker0 共用现有网桥）
+curl -fsSL https://raw.githubusercontent.com/wd780h/cub-panel/main/deploy/setup-lxd-node.sh | sh
+# 再装被控 —— 自动加载内核模块、生成密钥 + 10 年自签证书
+curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- agent
 ```
 
 脚本结尾会打印 **Agent 地址 + 共享密钥 + 证书指纹**，照抄进面板。

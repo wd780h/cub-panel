@@ -39,7 +39,7 @@ CUB_PANEL_LISTEN=0.0.0.0:8080
 CUB_PANEL_DB=/opt/cub-panel/data/panel.db
 
 # Site name shown in the UI.
-CUB_PANEL_SITE=cub-panel Cloud
+CUB_PANEL_SITE="cub-panel Cloud"
 
 # Set to 1 once the panel is served over HTTPS. This adds the Secure flag to
 # session cookies; leaving it on while serving plain HTTP breaks login.

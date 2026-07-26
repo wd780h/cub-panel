@@ -53,18 +53,13 @@ glibc, Node or Python — **amd64 and arm64 supported**.
 
 ## 🚀 Quick start
 
-Get the binaries — download the right architecture from
-[Releases](https://github.com/wd780h/cub-panel/releases), or build from source:
-
-```sh
-git clone https://github.com/wd780h/cub-panel.git
-cd cub-panel/deploy && sh ./build.sh      # needs Go 1.25+, output in ../bin/
-```
+No Go, no source tree — the one-click script auto-downloads the prebuilt binary for your
+architecture (amd64 / arm64) and installs it as a service.
 
 ### 1. Deploy the master (panel host)
 
 ```sh
-cd deploy && sh ./install-panel.sh
+curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- panel
 ```
 
 Open `http://<panel-ip>:8080/register` — **the first account to register becomes admin**.
@@ -73,9 +68,10 @@ Afterwards set `CUB_PANEL_ALLOW_SIGNUP=0` to close public sign-up and restart.
 ### 2. Prepare a host node
 
 ```sh
-cd deploy && sh ./setup-lxd-node.sh          # installs Incus, bridge & storage pool
-# optional: KVM=1 to install QEMU; EXISTING_BRIDGE=docker0 to reuse a bridge
-sh ./install-agent.sh                        # installs the agent, generates key + 10-year cert
+# First install Incus, bridge & storage pool (KVM=1 to add QEMU; EXISTING_BRIDGE=docker0 to reuse a bridge)
+curl -fsSL https://raw.githubusercontent.com/wd780h/cub-panel/main/deploy/setup-lxd-node.sh | sh
+# Then install the agent — auto-loads kernel modules, generates key + 10-year cert
+curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- agent
 ```
 
 The script prints the **agent address + shared secret + certificate fingerprint** — copy them into the panel.
