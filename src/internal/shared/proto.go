@@ -146,7 +146,11 @@ type CreateRequest struct {
 	CPU          int      `json:"cpu"`       // cores
 	MemoryMB     int      `json:"memory_mb"` // hard limit
 	DiskGB       int      `json:"disk_gb"`
-	Mode         NetMode  `json:"mode"`
+	// StoragePool is the node's pool from the panel config; empty falls back
+	// to the agent's CUB_AGENT_POOL. Disk quotas need lvm/btrfs/zfs — the dir
+	// driver silently ignores the root size.
+	StoragePool string  `json:"storage_pool,omitempty"`
+	Mode        NetMode `json:"mode"`
 	// Optional per-plan features (tun, fuse, privileged, nesting).
 	Features []string `json:"features,omitempty"`
 	// NIC bandwidth caps in Mbps (limits.ingress/egress); 0 = unlimited.

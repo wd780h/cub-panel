@@ -9,7 +9,11 @@ NAT_BRIDGE="${NAT_BRIDGE:-lxdbr0}"
 NAT_SUBNET="${NAT_SUBNET:-10.180.0.1/24}"   # bridge address, /24 by default
 EXISTING_BRIDGE="${EXISTING_BRIDGE:-}"      # e.g. docker0/br0: reuse it, skip creation
 POOL="${POOL:-default}"
-POOL_DRIVER="${POOL_DRIVER:-dir}"
+# Pool driver. Disk quotas (and a correct in-guest `df`) need a real volume
+# driver: lvm (thin, loop-backed — the default here) or btrfs. The dir driver
+# silently ignores the root-disk size and guests see the host filesystem.
+POOL_DRIVER="${POOL_DRIVER:-lvm}"
+POOL_SIZE="${POOL_SIZE:-}"                  # loop file size for lvm/btrfs, e.g. 100GiB; empty = incus default (~20%%, min 5GiB)
 V6_BRIDGE="${V6_BRIDGE:-}"                  # e.g. br0; leave empty to skip
 V6_CIDR="${V6_CIDR:-}"                      # e.g. 2a01:4f8:1:2::/64
 V4_BRIDGE="${V4_BRIDGE:-}"                  # dedicated public IPv4 bridge; leave empty to skip
@@ -145,11 +149,42 @@ fi
 
 # ---------- storage pool ----------
 
+# LVM thin pools need the dm-thin kernel module, the LVM userspace and
+# mkfs.ext4; per-instance volumes then enforce the plan's disk size and the
+# guest's `df` reports it exactly.
+if [ "$POOL_DRIVER" = "lvm" ]; then
+	if modprobe dm_thin_pool 2>/dev/null; then
+		echo dm_thin_pool >> /etc/modules-load.d/cub-panel.conf 2>/dev/null || true
+		sort -u /etc/modules-load.d/cub-panel.conf -o /etc/modules-load.d/cub-panel.conf 2>/dev/null || true
+		if command -v apk >/dev/null 2>&1; then
+			apk add -q lvm2 thin-provisioning-tools e2fsprogs e2fsprogs-extra
+		else
+			DEBIAN_FRONTEND=noninteractive apt-get install -y -q lvm2 thin-provisioning-tools e2fsprogs >/dev/null
+		fi
+	else
+		warn "kernel lacks dm_thin_pool — falling back to btrfs"
+		POOL_DRIVER=btrfs
+	fi
+fi
+if [ "$POOL_DRIVER" = "btrfs" ]; then
+	if modprobe btrfs 2>/dev/null || grep -qw btrfs /proc/filesystems; then
+		if command -v apk >/dev/null 2>&1; then apk add -q btrfs-progs; else DEBIAN_FRONTEND=noninteractive apt-get install -y -q btrfs-progs >/dev/null; fi
+	else
+		warn "kernel lacks btrfs too — falling back to dir. Disk sizes will NOT be enforced"
+		warn "and guests will see the host filesystem in df. Fix the kernel and re-run with POOL_DRIVER=lvm."
+		POOL_DRIVER=dir
+	fi
+fi
+
 if "$LXC" storage show "$POOL" >/dev/null 2>&1; then
-	say "storage pool '$POOL' already exists"
+	say "storage pool '$POOL' already exists ($("$LXC" storage show "$POOL" | sed -n 's/^driver: //p'))"
 else
-	say "creating storage pool '$POOL' ($POOL_DRIVER)"
-	"$LXC" storage create "$POOL" "$POOL_DRIVER"
+	say "creating storage pool '$POOL' ($POOL_DRIVER${POOL_SIZE:+, $POOL_SIZE})"
+	if [ -n "$POOL_SIZE" ] && [ "$POOL_DRIVER" != "dir" ]; then
+		"$LXC" storage create "$POOL" "$POOL_DRIVER" size="$POOL_SIZE"
+	else
+		"$LXC" storage create "$POOL" "$POOL_DRIVER"
+	fi
 fi
 
 # ---------- NAT bridge ----------

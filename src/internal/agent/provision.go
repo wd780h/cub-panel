@@ -36,11 +36,17 @@ func planNICs(mode shared.NetMode) nicPlan {
 
 // buildDevices renders the LXD device set for a create request.
 func (s *Server) buildDevices(req *shared.CreateRequest) map[string]lxd.Device {
+	// The panel's per-node pool wins; the agent env is the fallback so old
+	// panels (no storage_pool in the request) keep working.
+	pool := req.StoragePool
+	if pool == "" {
+		pool = s.cfg.StoragePool
+	}
 	dev := map[string]lxd.Device{
 		"root": {
 			"type": "disk",
 			"path": "/",
-			"pool": s.cfg.StoragePool,
+			"pool": pool,
 			"size": fmt.Sprintf("%dGB", req.DiskGB),
 		},
 	}
