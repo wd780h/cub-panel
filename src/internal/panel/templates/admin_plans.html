@@ -76,6 +76,16 @@
             <p class="hint">带「独立公网 IPv4/IPv6」的模式只会调度到已配置对应地址池的节点。</p>
           </div>
           <div class="field">
+            <label for="p-node">指定节点</label>
+            <select id="p-node" name="node_id">
+              <option value="0">自动调度（余量最多的节点）</option>
+              {{range .Data.Nodes}}
+              <option value="{{.ID}}">{{.Name}}{{if .Region}} · {{.Region}}{{end}}{{if not .Enabled}}（已停用）{{end}}</option>
+              {{end}}
+            </select>
+            <p class="hint">该套餐的实例只开在这个节点上。激活码单独绑定的节点优先级更高。</p>
+          </div>
+          <div class="field">
             <label class="check" style="margin-top:26px">
               <input type="checkbox" name="enabled" value="1" checked>
               <span>上架该套餐</span>
@@ -198,6 +208,7 @@
             data-f-disk_gb="{{.DiskGB}}"
             data-f-mode="{{.Mode}}"
             data-f-instance_type="{{.InstanceType}}"
+            data-f-node_id="{{.NodeID}}"
             data-f-feat_tun="{{if .HasFeature "tun"}}1{{else}}0{{end}}"
             data-f-feat_fuse="{{if .HasFeature "fuse"}}1{{else}}0{{end}}"
             data-f-feat_nesting="{{if .HasFeature "nesting"}}1{{else}}0{{end}}"

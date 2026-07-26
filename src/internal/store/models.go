@@ -319,6 +319,7 @@ type Plan struct {
 	DiskGB       int
 	Mode         string
 	InstanceType string // container | vm (KVM, beta)
+	NodeID       int64  // pin provisioning to one node; 0 = auto-schedule
 	Features     string // comma list: tun,fuse,privileged,nesting
 	TrafficGB    int    // monthly traffic allowance, 0 = unlimited
 	TrafficMode  string // both | up | down
@@ -388,14 +389,14 @@ func (p *Plan) AllowsImage(img string) bool {
 	return false
 }
 
-const planCols = `id, name, description, cpu, memory_mb, disk_gb, mode, instance_type, features,
+const planCols = `id, name, description, cpu, memory_mb, disk_gb, mode, instance_type, node_id, features,
 	traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, extra_disks, images,
 	price_cents, duration_days, enabled, sort_order, created_at`
 
 func scanPlan(s interface{ Scan(...any) error }) (*Plan, error) {
 	var p Plan
 	err := s.Scan(&p.ID, &p.Name, &p.Description, &p.CPU, &p.MemoryMB, &p.DiskGB,
-		&p.Mode, &p.InstanceType, &p.Features, &p.TrafficGB, &p.TrafficMode, &p.RateDownMbps, &p.RateUpMbps,
+		&p.Mode, &p.InstanceType, &p.NodeID, &p.Features, &p.TrafficGB, &p.TrafficMode, &p.RateDownMbps, &p.RateUpMbps,
 		&p.ExtraBridges, &p.V4Pool, &p.KeepSourceIP, &p.Mounts, &p.ExtraDisks, &p.Images,
 		&p.PriceCents, &p.DurationDays, &p.Enabled, &p.SortOrder, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -408,18 +409,18 @@ func scanPlan(s interface{ Scan(...any) error }) (*Plan, error) {
 func (d *DB) SavePlan(ctx context.Context, p *Plan) (int64, error) {
 	if p.ID == 0 {
 		return d.insertID(ctx,
-			`INSERT INTO plans (name, description, cpu, memory_mb, disk_gb, mode, instance_type, features,
+			`INSERT INTO plans (name, description, cpu, memory_mb, disk_gb, mode, instance_type, node_id, features,
 			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, extra_disks, images,
-			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.Features,
+			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.NodeID, p.Features,
 			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
 			p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, now())
 	}
 	_, err := d.ExecContext(ctx,
-		`UPDATE plans SET name=?, description=?, cpu=?, memory_mb=?, disk_gb=?, mode=?, instance_type=?, features=?,
+		`UPDATE plans SET name=?, description=?, cpu=?, memory_mb=?, disk_gb=?, mode=?, instance_type=?, node_id=?, features=?,
 		   traffic_gb=?, traffic_mode=?, rate_down_mbps=?, rate_up_mbps=?, extra_bridges=?, v4_pool=?, keep_source_ip=?,
 		   mounts=?, extra_disks=?, images=?, price_cents=?, duration_days=?, enabled=?, sort_order=? WHERE id=?`,
-		p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.Features,
+		p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.NodeID, p.Features,
 		p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
 		p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, p.ID)
 	return p.ID, err

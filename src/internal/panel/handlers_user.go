@@ -236,9 +236,12 @@ func (s *Server) handleRedeemPost(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "redeem_ok.html", p)
 }
 
-// pickNode resolves the target node: the code's pin if set, otherwise the
-// enabled node with the most headroom.
+// pickNode resolves the target node: the code's pin if set, then the plan's
+// pinned node, otherwise the enabled node with the most headroom.
 func (s *Server) pickNode(ctx context.Context, pinned int64, plan *store.Plan) (*store.Node, error) {
+	if pinned == 0 {
+		pinned = plan.NodeID
+	}
 	nodeOK := func(n *store.Node) error {
 		if needsV6(plan.Mode) && !n.V6Enabled {
 			return errors.New("该节点未开启独立 IPv6")
@@ -254,7 +257,7 @@ func (s *Server) pickNode(ctx context.Context, pinned int64, plan *store.Plan) (
 	if pinned > 0 {
 		n, err := s.db.NodeByID(ctx, pinned)
 		if err != nil || !n.Enabled {
-			return nil, errors.New("该激活码绑定的节点当前不可用")
+			return nil, errors.New("指定的节点当前不可用（已停用或删除）")
 		}
 		if err := nodeOK(n); err != nil {
 			return nil, err

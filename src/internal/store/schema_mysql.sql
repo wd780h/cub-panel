@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS plans (
   disk_gb       BIGINT  NOT NULL,
   mode          VARCHAR(32) NOT NULL DEFAULT 'nat',
   instance_type VARCHAR(32) NOT NULL DEFAULT 'container',
+  node_id       BIGINT  NOT NULL DEFAULT 0,
   features      VARCHAR(512) NOT NULL DEFAULT '',
   traffic_gb    BIGINT  NOT NULL DEFAULT 0,
   traffic_mode  VARCHAR(16) NOT NULL DEFAULT 'both',

@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS plans (
   disk_gb      INTEGER NOT NULL,
   mode         TEXT    NOT NULL DEFAULT 'nat',       -- nat | ipv6 | ipv6only
   instance_type TEXT   NOT NULL DEFAULT 'container',  -- container | vm (KVM, beta)
+  node_id      INTEGER NOT NULL DEFAULT 0,            -- 指定节点，0 = 自动调度
   features     TEXT    NOT NULL DEFAULT '',           -- tun,fuse,privileged,nesting
   traffic_gb   INTEGER NOT NULL DEFAULT 0,            -- 月流量限额 GB，0 = 不限
   traffic_mode TEXT    NOT NULL DEFAULT 'both',       -- both | up | down

@@ -242,6 +242,9 @@ func (s *Server) handleAdminPlans(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Data["Plans"] = plans
 	p.Data["CachedImages"] = s.cachedImageAliases(r.Context())
+	if nodes, err := s.db.ListNodes(r.Context(), false); err == nil {
+		p.Data["Nodes"] = nodes
+	}
 	if r.URL.Query().Get("ok") != "" {
 		p.Flash = "保存成功"
 	}
@@ -348,6 +351,14 @@ func (s *Server) handleAdminPlanSave(w http.ResponseWriter, r *http.Request) {
 		s.adminPlansError(w, r, "附加数据盘格式不正确："+err.Error())
 		return
 	}
+	// Optional node pin: 0 = auto-schedule; anything else must be a real node.
+	pl.NodeID = formInt64(r, "node_id")
+	if pl.NodeID > 0 {
+		if _, err := s.db.NodeByID(r.Context(), pl.NodeID); err != nil {
+			s.adminPlansError(w, r, "指定的节点不存在")
+			return
+		}
+	}
 	if pl.V4Pool != "" {
 		if err := store.ValidateReserved(pl.V4Pool); err != nil {
 			s.adminPlansError(w, r, "内网 IP 段格式不正确："+err.Error())
@@ -401,6 +412,9 @@ func (s *Server) adminPlansError(w http.ResponseWriter, r *http.Request, msg str
 	plans, _ := s.db.ListPlans(r.Context(), false)
 	p.Data["Plans"] = plans
 	p.Data["CachedImages"] = s.cachedImageAliases(r.Context())
+	if nodes, err := s.db.ListNodes(r.Context(), false); err == nil {
+		p.Data["Nodes"] = nodes
+	}
 	w.WriteHeader(http.StatusBadRequest)
 	s.render(w, r, "admin_plans.html", p)
 }
