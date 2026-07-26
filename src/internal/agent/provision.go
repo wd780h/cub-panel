@@ -569,12 +569,19 @@ fi
 const scriptDebian = `set -e
 echo "root:$ICP_PW" | chpasswd
 ` + scriptCommonNetApply + `
-# Package mirrors can be a moment behind the interface coming up, so retry
-# before giving up. A guest with no sshd is useless to the tenant, hence the
-# hard failure at the end rather than a silently broken "running" instance.
+# DHCP and DNS can lag the NIC coming up, so wait for working connectivity
+# before touching the mirrors, then retry the install. A guest with no sshd is
+# useless to the tenant, hence the hard failure below rather than a silently
+# broken "running" instance.
 if ! command -v sshd >/dev/null 2>&1; then
   i=1
-  while [ $i -le 3 ]; do
+  while [ $i -le 15 ]; do
+    (ping -c1 -W2 deb.debian.org >/dev/null 2>&1 ||
+     ping -c1 -W2 1.1.1.1 >/dev/null 2>&1) && break
+    sleep 2; i=$((i + 1))
+  done
+  i=1
+  while [ $i -le 4 ]; do
     apt-get update -qq >/dev/null 2>&1 || true
     apt-get install -y -qq --no-install-recommends openssh-server iproute2 >/dev/null 2>&1 || true
     command -v sshd >/dev/null 2>&1 && break
@@ -620,12 +627,20 @@ exit 91
 const scriptAlpine = `set -e
 echo "root:$ICP_PW" | chpasswd
 ` + scriptCommonNetApply + `
-# Retry: the mirror may not be reachable the instant the NIC comes up. A guest
-# without sshd is useless to the tenant, so fail loudly instead of leaving a
-# silently broken "running" instance.
+# DHCP and DNS can lag the NIC coming up, so wait for working name resolution
+# before touching the mirrors, then retry the install. A guest without sshd is
+# useless to the tenant, hence the hard failure below rather than a silently
+# broken "running" instance.
 if ! command -v sshd >/dev/null 2>&1; then
   i=1
-  while [ $i -le 3 ]; do
+  while [ $i -le 15 ]; do
+    (ping -c1 -W2 dl-cdn.alpinelinux.org >/dev/null 2>&1 ||
+     ping -c1 -W2 1.1.1.1 >/dev/null 2>&1) && break
+    sleep 2; i=$((i + 1))
+  done
+  i=1
+  while [ $i -le 4 ]; do
+    apk update >/dev/null 2>&1 || true
     apk add --no-cache openssh iproute2 >/dev/null 2>&1 || true
     command -v sshd >/dev/null 2>&1 && break
     i=$((i + 1)); sleep 5
