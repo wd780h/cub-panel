@@ -328,6 +328,7 @@ type Plan struct {
 	V4Pool       string // restrict NAT internal IP to this range (within node subnet)
 	KeepSourceIP bool   // NAT forwards preserve the real client source IP (DNAT)
 	Mounts       string // host-dir binds "src:dst[:ro]" per line/comma (admin-only)
+	ExtraDisks   string // extra data volumes in GB, comma list ("20,50"), max 4
 	Images       string
 	PriceCents   int64 // 0 = not purchasable with balance
 	DurationDays int
@@ -388,14 +389,14 @@ func (p *Plan) AllowsImage(img string) bool {
 }
 
 const planCols = `id, name, description, cpu, memory_mb, disk_gb, mode, instance_type, features,
-	traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, images,
+	traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, extra_disks, images,
 	price_cents, duration_days, enabled, sort_order, created_at`
 
 func scanPlan(s interface{ Scan(...any) error }) (*Plan, error) {
 	var p Plan
 	err := s.Scan(&p.ID, &p.Name, &p.Description, &p.CPU, &p.MemoryMB, &p.DiskGB,
 		&p.Mode, &p.InstanceType, &p.Features, &p.TrafficGB, &p.TrafficMode, &p.RateDownMbps, &p.RateUpMbps,
-		&p.ExtraBridges, &p.V4Pool, &p.KeepSourceIP, &p.Mounts, &p.Images,
+		&p.ExtraBridges, &p.V4Pool, &p.KeepSourceIP, &p.Mounts, &p.ExtraDisks, &p.Images,
 		&p.PriceCents, &p.DurationDays, &p.Enabled, &p.SortOrder, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -408,18 +409,18 @@ func (d *DB) SavePlan(ctx context.Context, p *Plan) (int64, error) {
 	if p.ID == 0 {
 		return d.insertID(ctx,
 			`INSERT INTO plans (name, description, cpu, memory_mb, disk_gb, mode, instance_type, features,
-			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, images,
-			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, extra_disks, images,
+			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.Features,
-			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.Images,
+			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
 			p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, now())
 	}
 	_, err := d.ExecContext(ctx,
 		`UPDATE plans SET name=?, description=?, cpu=?, memory_mb=?, disk_gb=?, mode=?, instance_type=?, features=?,
 		   traffic_gb=?, traffic_mode=?, rate_down_mbps=?, rate_up_mbps=?, extra_bridges=?, v4_pool=?, keep_source_ip=?,
-		   mounts=?, images=?, price_cents=?, duration_days=?, enabled=?, sort_order=? WHERE id=?`,
+		   mounts=?, extra_disks=?, images=?, price_cents=?, duration_days=?, enabled=?, sort_order=? WHERE id=?`,
 		p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.Features,
-		p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.Images,
+		p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
 		p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, p.ID)
 	return p.ID, err
 }
@@ -619,6 +620,7 @@ type Instance struct {
 	RateUpMbps     int    // egress bandwidth cap, 0 = unlimited
 	ExtraBridges   string // extra NIC bridges, comma separated
 	Mounts         string // host-dir binds "src:dst[:ro]", copied from the plan
+	ExtraDisks     string // extra data volumes GB list, copied from the plan
 	VNCPort        int    // KVM: host VNC port, 0 = none
 	VNCPass        string // KVM: VNC password (8 chars, DES limit)
 	V4Addr         string // dedicated public IPv4
@@ -651,7 +653,7 @@ const instCols = `i.id, i.user_id, i.node_id, i.plan_id, i.code_id, i.name, i.la
 	i.family, i.cpu, i.memory_mb, i.disk_gb, i.mode, i.instance_type, i.nat_addr, i.ssh_port, i.port_from,
 	i.port_to, i.v6_addr, i.status, i.error,
 	i.traffic_limit_gb, i.traffic_mode, i.used_rx, i.used_tx, i.last_rx, i.last_tx, i.traffic_reset_at,
-	i.rate_down_mbps, i.rate_up_mbps, i.extra_bridges, i.mounts, i.vnc_port, i.vnc_pass, i.v4_addr,
+	i.rate_down_mbps, i.rate_up_mbps, i.extra_bridges, i.mounts, i.extra_disks, i.vnc_port, i.vnc_pass, i.v4_addr,
 	i.created_at, i.expires_at`
 
 func scanInst(s interface{ Scan(...any) error }, extra ...any) (*Instance, error) {
@@ -660,7 +662,7 @@ func scanInst(s interface{ Scan(...any) error }, extra ...any) (*Instance, error
 		&i.Family, &i.CPU, &i.MemoryMB, &i.DiskGB, &i.Mode, &i.InstanceType, &i.NATAddr, &i.SSHPort, &i.PortFrom,
 		&i.PortTo, &i.V6Addr, &i.Status, &i.Error,
 		&i.TrafficLimitGB, &i.TrafficMode, &i.UsedRX, &i.UsedTX, &i.LastRX, &i.LastTX, &i.TrafficResetAt,
-		&i.RateDownMbps, &i.RateUpMbps, &i.ExtraBridges, &i.Mounts, &i.VNCPort, &i.VNCPass, &i.V4Addr,
+		&i.RateDownMbps, &i.RateUpMbps, &i.ExtraBridges, &i.Mounts, &i.ExtraDisks, &i.VNCPort, &i.VNCPass, &i.V4Addr,
 		&i.CreatedAt, &i.ExpiresAt}
 	dst = append(dst, extra...)
 	err := s.Scan(dst...)
@@ -676,13 +678,13 @@ func (d *DB) CreateInstance(ctx context.Context, i *Instance) (int64, error) {
 		`INSERT INTO instances (user_id, node_id, plan_id, code_id, name, label, image, family,
 		   cpu, memory_mb, disk_gb, mode, instance_type, nat_addr, ssh_port, port_from, port_to, v6_addr,
 		   status, traffic_limit_gb, traffic_mode, traffic_reset_at, rate_down_mbps, rate_up_mbps,
-		   extra_bridges, mounts, vnc_port, vnc_pass, v4_addr,
+		   extra_bridges, mounts, extra_disks, vnc_port, vnc_pass, v4_addr,
 		   created_at, expires_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		i.UserID, i.NodeID, i.PlanID, i.CodeID, i.Name, i.Label, i.Image, i.Family,
 		i.CPU, i.MemoryMB, i.DiskGB, i.Mode, i.InstanceType, i.NATAddr, i.SSHPort, i.PortFrom, i.PortTo,
 		i.V6Addr, i.Status, i.TrafficLimitGB, i.TrafficMode, i.TrafficResetAt,
-		i.RateDownMbps, i.RateUpMbps, i.ExtraBridges, i.Mounts, i.VNCPort, i.VNCPass, i.V4Addr, now(), i.ExpiresAt)
+		i.RateDownMbps, i.RateUpMbps, i.ExtraBridges, i.Mounts, i.ExtraDisks, i.VNCPort, i.VNCPass, i.V4Addr, now(), i.ExpiresAt)
 }
 
 // InstanceByID fetches an instance with its node joined.

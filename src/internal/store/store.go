@@ -297,6 +297,8 @@ func migrate(sdb *sql.DB, driver string) error {
 		`ALTER TABLE instances ADD COLUMN v4_addr TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE plans ADD COLUMN mounts TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE instances ADD COLUMN mounts TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE plans ADD COLUMN extra_disks TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE instances ADD COLUMN extra_disks TEXT NOT NULL DEFAULT ''`,
 	} {
 		if driver == MySQL {
 			stmt = strings.ReplaceAll(stmt, "TEXT NOT NULL DEFAULT", "VARCHAR(1024) NOT NULL DEFAULT")

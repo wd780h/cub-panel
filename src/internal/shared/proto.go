@@ -158,10 +158,15 @@ type CreateRequest struct {
 	// NIC bandwidth caps in Mbps (limits.ingress/egress); 0 = unlimited.
 	RateDownMbps int `json:"rate_down_mbps,omitempty"`
 	RateUpMbps   int `json:"rate_up_mbps,omitempty"`
-	// ExtraBridges attaches additional bridged NICs (eth2, eth3…) — VM multi-NIC.
+	// ExtraBridges attaches additional bridged NICs (eth2, eth3…) to both
+	// containers and VMs.
 	ExtraBridges []string `json:"extra_bridges,omitempty"`
 	// Mounts binds host directories into the guest (admin-defined per plan).
 	Mounts []MountSpec `json:"mounts,omitempty"`
+	// ExtraDisks creates additional data volumes (GB each) in the node's pool,
+	// mounted at /data1, /data2, … — containers and VMs (VMs need the Incus
+	// guest agent for the mount to appear).
+	ExtraDisks []int `json:"extra_disks,omitempty"`
 	// VNC (VM only): host port + password for the SPICE/VNC console.
 	VNCPort int    `json:"vnc_port,omitempty"`
 	VNCPass string `json:"vnc_pass,omitempty"`
@@ -283,6 +288,52 @@ type RemoteImage struct {
 }
 
 // ISOInfo is one ISO file in a node's library.
+// StoragePoolInfo describes one storage pool on a node.
+type StoragePoolInfo struct {
+	Name       string `json:"name"`
+	Driver     string `json:"driver"`
+	UsedBytes  int64  `json:"used_bytes"`
+	TotalBytes int64  `json:"total_bytes"`
+	// Instances counts instance root disks living in this pool.
+	Instances int `json:"instances"`
+}
+
+// StorageReport is the agent's answer to GET /v1/storage: what the host kernel
+// can do plus every pool with its usage.
+type StorageReport struct {
+	// Supported drivers on this host (probed from the kernel).
+	LVM   bool              `json:"lvm"`
+	Btrfs bool              `json:"btrfs"`
+	ZFS   bool              `json:"zfs"`
+	Pools []StoragePoolInfo `json:"pools"`
+}
+
+// StorageResizeRequest grows a pool (shrinking is not supported by Incus).
+type StorageResizeRequest struct {
+	SizeGiB int `json:"size_gib"`
+}
+
+// ParseExtraDisks parses a comma list of data-disk sizes in GB ("20,50").
+// At most 4 disks, each 1–4096 GB.
+func ParseExtraDisks(s string) ([]int, error) {
+	var out []int
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 1 || n > 4096 {
+			return nil, fmt.Errorf("数据盘大小需为 1–4096 GB — %q", part)
+		}
+		out = append(out, n)
+		if len(out) > 4 {
+			return nil, fmt.Errorf("最多 4 块数据盘")
+		}
+	}
+	return out, nil
+}
+
 // MountSpec is one host-directory bind mount for an instance. Admin-defined
 // only — exposing host paths to tenants is a host-security decision.
 type MountSpec struct {

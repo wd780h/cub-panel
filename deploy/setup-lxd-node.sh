@@ -16,8 +16,9 @@ POOL="${POOL:-default}"
 # POOL_DRIVER=btrfs forces btrfs (quotas enforce, but df shows the pool size).
 POOL_DRIVER="${POOL_DRIVER:-auto}"
 # Loop file size for lvm/btrfs. "auto" (default) sizes it to ~90% of the free
-# space on /var/lib (min 5GiB) — the loop file is sparse, so it only consumes
-# disk as instances actually write. Ignored when POOL_DEVICE is set.
+# space on /var/lib (min 5GiB; default 50% — grow any time from the panel's
+# storage page). Sparse loop: only consumes disk as instances write. Ignored
+# when POOL_DEVICE is set.
 POOL_SIZE="${POOL_SIZE:-auto}"
 # Dedicated block device for the pool (e.g. POOL_DEVICE=/dev/sdb): the whole
 # disk is handed to the driver — no loop file, better performance. The device
@@ -214,10 +215,10 @@ if [ -n "$POOL_DEVICE" ]; then
 	fi
 elif [ "$POOL_SIZE" = "auto" ] && [ "$POOL_DRIVER" != "dir" ]; then
 	AVAIL_GB="$(df -Pk /var/lib 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')"
-	POOL_SIZE="$(( AVAIL_GB * 9 / 10 ))"
+	POOL_SIZE="$(( AVAIL_GB / 2 ))"
 	[ "$POOL_SIZE" -ge 5 ] || POOL_SIZE=5
 	POOL_SIZE="${POOL_SIZE}GiB"
-	say "auto pool size: $POOL_SIZE (90% of ${AVAIL_GB}GiB free)"
+	say "auto pool size: $POOL_SIZE (50% of ${AVAIL_GB}GiB free — grow later from the panel storage page)"
 fi
 
 if "$LXC" storage show "$POOL" >/dev/null 2>&1; then

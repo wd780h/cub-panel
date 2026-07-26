@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"cubpanel/internal/store"
@@ -127,6 +128,12 @@ func (s *Server) handleAdminInstanceMigrate(w http.ResponseWriter, r *http.Reque
 	}
 	if dst.ID == src.ID {
 		s.renderError(w, r, http.StatusBadRequest, "目标节点与当前节点相同")
+		return
+	}
+	// The instance backup only carries the root disk; custom data volumes
+	// would be silently left behind, so refuse rather than lose data.
+	if strings.TrimSpace(inst.ExtraDisks) != "" {
+		s.renderError(w, r, http.StatusBadRequest, "带附加数据盘的实例暂不支持跨节点迁移")
 		return
 	}
 	if needsV6(inst.Mode) && !dst.V6Enabled {

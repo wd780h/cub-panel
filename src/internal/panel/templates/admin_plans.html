@@ -113,6 +113,14 @@
             <p class="hint">逗号分隔，为实例额外挂网卡（多网卡）。网桥须在各节点上已存在。</p>
           </div>
           <div class="field span2">
+            <label for="p-disks">附加数据盘 (GB)</label>
+            <input id="p-disks" type="text" name="extra_disks" maxlength="64" class="mono"
+                   placeholder="20,50">
+            <p class="hint">逗号分隔，最多 4 块，每块 1–4096 GB。从节点存储池分配，
+              挂载到 <code>/data1</code>、<code>/data2</code>…（KVM 需 Incus guest agent，Beta）。
+              带数据盘的实例暂不支持跨节点迁移。</p>
+          </div>
+          <div class="field span2">
             <label for="p-mounts">宿主机目录挂载</label>
             <textarea id="p-mounts" name="mounts" rows="2" maxlength="1000" class="mono"
                       placeholder="/data/share:/mnt/share:ro&#10;/data/pub:/srv/pub"></textarea>
@@ -198,6 +206,7 @@
             data-f-feat_cpuhide="{{if .HasFeature "cpuhide"}}1{{else}}0{{end}}"
             data-f-extra_bridges="{{.ExtraBridges}}"
             data-f-mounts="{{.Mounts}}"
+            data-f-extra_disks="{{.ExtraDisks}}"
             data-f-v4_pool="{{.V4Pool}}"
             data-f-keep_source_ip="{{if .KeepSourceIP}}1{{else}}0{{end}}"
             data-f-images="{{.Images}}"

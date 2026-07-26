@@ -1,0 +1,68 @@
+{{define "admin_storage.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="wrap">
+  <div class="page-head">
+    <h1>存储管理</h1>
+    <p>各节点的存储驱动支持与存储池占用。池只能扩大，不能缩小。</p>
+  </div>
+
+  {{template "adminnav" .}}
+  {{template "flash" .}}
+
+  {{range .Data.Nodes}}
+  <div class="card mb-2">
+    <h3>{{.Node.Name}}
+      {{if .Err}}<span class="badge bad">不可达</span>
+      {{else}}
+        {{if .LVM}}<span class="tag">LVM thin</span>{{end}}
+        {{if .Btrfs}}<span class="tag">btrfs</span>{{end}}
+        {{if .ZFS}}<span class="tag">zfs</span>{{end}}
+      {{end}}
+    </h3>
+    {{if .Err}}
+      <p class="hint">{{.Err}}</p>
+    {{else}}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>存储池</th><th>驱动</th><th>占用</th><th style="min-width:180px">用量</th><th>实例</th><th class="t-right">扩容</th></tr></thead>
+        <tbody>
+          {{$node := .Node}}
+          {{range .Pools}}
+          <tr>
+            <td><b>{{.Name}}</b></td>
+            <td class="mono dim">{{.Driver}}{{if eq .Driver "dir"}} <span class="tag">不限额</span>{{end}}</td>
+            <td class="mono">{{.UsedGiB}} / {{.TotalGiB}} GiB</td>
+            <td>
+              <div class="meter"><span style="width:{{.Percent}}%"
+                   class="{{if ge .Percent 90}}bad{{else if ge .Percent 70}}warn{{end}}"></span></div>
+              <span class="hint">{{.Percent}}%</span>
+            </td>
+            <td class="mono">{{.Instances}}</td>
+            <td class="t-right">
+              {{if ne .Driver "dir"}}
+              <form method="post" action="/admin/storage/resize" class="inline-form">
+                <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="node" value="{{$node.ID}}">
+                <input type="hidden" name="pool" value="{{.Name}}">
+                <input type="number" name="size_gib" min="5" max="1048576" placeholder="GiB"
+                       style="width:90px" required>
+                <button class="btn btn-sm" type="submit">扩到该大小</button>
+              </form>
+              {{else}}—{{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">建议：LVM thin 池支持超开——套餐总额可超过池大小，只有实际写入才占空间；
+      占用率超过 80% 时请及时扩容或清理。</p>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="card empty"><div class="big">💾</div><p>还没有节点。先到「节点」页添加。</p></div>
+  {{end}}
+</main>
+
+{{template "foot" .}}{{end}}

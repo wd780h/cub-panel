@@ -290,6 +290,19 @@ func signEmpty(req *http.Request, secret, method, path string) {
 	req.Header.Set(shared.HeaderSignature, shared.Sign(secret, method, path, ts, n, nil))
 }
 
+func agentStorage(ctx context.Context, node *store.Node) (*shared.StorageReport, error) {
+	var rep shared.StorageReport
+	if err := callAgent(ctx, node, "GET", "/v1/storage", nil, &rep); err != nil {
+		return nil, err
+	}
+	return &rep, nil
+}
+
+func agentStorageResize(ctx context.Context, node *store.Node, pool string, sizeGiB int) error {
+	return callAgent(ctx, node, "POST", "/v1/storage/"+url.PathEscape(pool)+"/resize",
+		shared.StorageResizeRequest{SizeGiB: sizeGiB}, nil)
+}
+
 func agentImages(ctx context.Context, node *store.Node) ([]shared.LocalImage, error) {
 	var list []shared.LocalImage
 	if err := callAgent(ctx, node, "GET", "/v1/images", nil, &list); err != nil {

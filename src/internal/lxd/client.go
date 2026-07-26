@@ -546,3 +546,62 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "..."
 }
+
+// ---------- storage pools & custom volumes ----------
+
+// StoragePool is one pool as reported by the daemon.
+type StoragePool struct {
+	Name   string            `json:"name"`
+	Driver string            `json:"driver"`
+	Config map[string]string `json:"config"`
+	UsedBy []string          `json:"used_by"`
+}
+
+// StoragePools lists every pool with its config.
+func (c *Client) StoragePools(ctx context.Context) ([]StoragePool, error) {
+	var pools []StoragePool
+	err := c.sync(ctx, "GET", "/1.0/storage-pools?recursion=1", nil, &pools)
+	return pools, err
+}
+
+// poolResources mirrors GET /1.0/storage-pools/{name}/resources.
+type poolResources struct {
+	Space struct {
+		Used  int64 `json:"used"`
+		Total int64 `json:"total"`
+	} `json:"space"`
+}
+
+// StoragePoolUsage returns used/total bytes for a pool.
+func (c *Client) StoragePoolUsage(ctx context.Context, pool string) (used, total int64, err error) {
+	var res poolResources
+	if err = c.sync(ctx, "GET", "/1.0/storage-pools/"+url.PathEscape(pool)+"/resources", nil, &res); err != nil {
+		return 0, 0, err
+	}
+	return res.Space.Used, res.Space.Total, nil
+}
+
+// StoragePoolSetSize grows a loop-backed pool (Incus refuses shrinking).
+func (c *Client) StoragePoolSetSize(ctx context.Context, pool, size string) error {
+	return c.sync(ctx, "PATCH", "/1.0/storage-pools/"+url.PathEscape(pool),
+		map[string]any{"config": map[string]string{"size": size}}, nil)
+}
+
+// VolumeCreate makes a custom filesystem volume in a pool.
+func (c *Client) VolumeCreate(ctx context.Context, pool, name string, sizeGB int) error {
+	return c.sync(ctx, "POST", "/1.0/storage-pools/"+url.PathEscape(pool)+"/volumes/custom",
+		map[string]any{
+			"name":   name,
+			"config": map[string]string{"size": fmt.Sprintf("%dGB", sizeGB)},
+		}, nil)
+}
+
+// VolumeDelete removes a custom volume; missing volumes are not an error.
+func (c *Client) VolumeDelete(ctx context.Context, pool, name string) error {
+	err := c.sync(ctx, "DELETE",
+		"/1.0/storage-pools/"+url.PathEscape(pool)+"/volumes/custom/"+url.PathEscape(name), nil, nil)
+	if err != nil && strings.Contains(err.Error(), "not found") {
+		return nil
+	}
+	return err
+}

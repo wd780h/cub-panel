@@ -70,6 +70,20 @@ func (s *Server) buildDevices(req *shared.CreateRequest) map[string]lxd.Device {
 		}
 		dev[fmt.Sprintf("hostmnt%d", i)] = d
 	}
+
+	// Extra data disks: custom pool volumes mounted at /data1, /data2, … .
+	// VMs receive them through the Incus guest agent (virtiofs/9p).
+	for i := range req.ExtraDisks {
+		if i >= 4 {
+			break
+		}
+		dev[fmt.Sprintf("data%d", i+1)] = lxd.Device{
+			"type":   "disk",
+			"pool":   pool,
+			"source": extraDiskVolume(req.Name, i),
+			"path":   fmt.Sprintf("/data%d", i+1),
+		}
+	}
 	plan := planNICs(req.Mode)
 	nic := func(dname, bridge string) {
 		dev[dname] = withRateLimits(lxd.Device{
@@ -274,7 +288,20 @@ func (s *Server) Create(ctx context.Context, req *shared.CreateRequest) error {
 			PortFrom: req.PortFrom, PortTo: req.PortTo,
 		}.String()
 	}
+	// Data volumes must exist before the instance references them as devices.
+	diskPool := req.StoragePool
+	if diskPool == "" {
+		diskPool = s.cfg.StoragePool
+	}
+	if len(req.ExtraDisks) > 0 {
+		if err := s.createExtraDisks(ctx, diskPool, req.Name, req.ExtraDisks); err != nil {
+			return err
+		}
+	}
 	if err := s.lxd.Create(ctx, post); err != nil {
+		if len(req.ExtraDisks) > 0 {
+			s.deleteExtraDisks(ctx, diskPool, req.Name)
+		}
 		return fmt.Errorf("create: %w", err)
 	}
 	if s.useAgentDNAT(req) {

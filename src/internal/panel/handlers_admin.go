@@ -343,6 +343,11 @@ func (s *Server) handleAdminPlanSave(w http.ResponseWriter, r *http.Request) {
 		s.adminPlansError(w, r, "宿主机挂载格式不正确："+err.Error())
 		return
 	}
+	pl.ExtraDisks = formStr(r, "extra_disks", 64)
+	if _, err := shared.ParseExtraDisks(pl.ExtraDisks); err != nil {
+		s.adminPlansError(w, r, "附加数据盘格式不正确："+err.Error())
+		return
+	}
 	if pl.V4Pool != "" {
 		if err := store.ValidateReserved(pl.V4Pool); err != nil {
 			s.adminPlansError(w, r, "内网 IP 段格式不正确："+err.Error())

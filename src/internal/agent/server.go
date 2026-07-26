@@ -85,6 +85,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/isos/{name}", s.wrap(s.handleISODelete))
 	mux.HandleFunc("POST /v1/instances/{name}/iso", s.wrap(s.handleISOAttach))
 	mux.HandleFunc("DELETE /v1/instances/{name}/iso", s.wrap(s.handleISODetach))
+	mux.HandleFunc("GET /v1/storage", s.wrap(s.handleStorage))
+	mux.HandleFunc("POST /v1/storage/{pool}/resize", s.wrap(s.handleStorageResize))
 	mux.HandleFunc("GET /v1/images", s.wrap(s.handleImages))
 	mux.HandleFunc("GET /v1/images/remote", s.wrap(s.handleImagesRemote))
 	mux.HandleFunc("POST /v1/images/pull", s.wrap(s.handleImagePull))
@@ -334,12 +336,22 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, _ []byte) 
 		return
 	}
 	ctx := r.Context()
+	// The root device names the pool that also holds any data volumes; read
+	// it before the instance record disappears.
+	diskPool := s.cfg.StoragePool
+	if in, err := s.lxd.Get(ctx, name); err == nil {
+		if root, ok := in.Devices["root"]; ok && root["pool"] != "" {
+			diskPool = root["pool"]
+		}
+	}
 	// Force-stop first; LXD refuses to delete a running instance.
 	_ = s.lxd.SetState(ctx, name, "stop", true)
 	if err := s.lxd.Delete(ctx, name); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Data volumes die with the instance (no-op when none exist).
+	s.deleteExtraDisks(ctx, diskPool, name)
 	// Withdraw any agent-managed DNAT rules (no-op for proxy-device setups).
 	if s.hasIPT {
 		s.removeDNAT(ctx, name)
