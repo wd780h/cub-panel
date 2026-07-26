@@ -146,6 +146,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/apikey", s.requireAdmin(s.csrfGuard(s.handleAdminAPIKey)))
 	mux.HandleFunc("GET /admin/instances", s.requireAdmin(s.handleAdminInstances))
 	mux.HandleFunc("POST /admin/instances/delete", s.requireAdmin(s.csrfGuard(s.handleAdminInstanceDelete)))
+	mux.HandleFunc("POST /admin/instances/batch", s.requireAdmin(s.csrfGuard(s.handleAdminInstanceBatch)))
+	mux.HandleFunc("POST /admin/codes/batch-delete", s.requireAdmin(s.csrfGuard(s.handleAdminCodeBatchDelete)))
 	mux.HandleFunc("POST /admin/instances/extend", s.requireAdmin(s.csrfGuard(s.handleAdminInstanceExtend)))
 	mux.HandleFunc("POST /admin/instances/resize", s.requireAdmin(s.csrfGuard(s.handleAdminInstanceResize)))
 	mux.HandleFunc("POST /admin/instances/traffic-reset", s.requireAdmin(s.csrfGuard(s.handleAdminInstanceTrafficReset)))

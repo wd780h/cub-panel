@@ -945,6 +945,101 @@ func (s *Server) handleAdminInstanceExtend(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/admin/instances", http.StatusSeeOther)
 }
 
+// parseIDList parses a comma-separated id list, deduplicated and capped.
+func parseIDList(s string, max int) []int64 {
+	seen := map[int64]bool{}
+	var out []int64
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		var id int64
+		if _, err := fmt.Sscanf(part, "%d", &id); err != nil || id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+// handleAdminInstanceBatch applies one operation to many instances. Items are
+// processed independently: one failure never aborts the rest.
+func (s *Server) handleAdminInstanceBatch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	op := formStr(r, "op", 16)
+	ids := parseIDList(r.FormValue("ids"), 200)
+	days := formInt(r, "days", 30, 1, 3650)
+	if len(ids) == 0 {
+		http.Redirect(w, r, "/admin/instances", http.StatusSeeOther)
+		return
+	}
+	okCount, failCount := 0, 0
+	for _, id := range ids {
+		inst, err := s.db.InstanceByID(ctx, id)
+		if err != nil {
+			failCount++
+			continue
+		}
+		switch op {
+		case "delete":
+			if node, err := s.db.NodeByID(ctx, inst.NodeID); err == nil {
+				dctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+				if err := agentDelete(dctx, node, inst.Name); err != nil {
+					// Node-side failure must not strand the panel record.
+					s.db.Audit(ctx, 0, "system", "instance.delete.warn",
+						inst.Name+": "+err.Error(), clientIP(r))
+				}
+				cancel()
+			}
+			_ = s.db.DeleteInstance(ctx, id)
+			okCount++
+		case "extend":
+			if err := s.db.ExtendInstance(ctx, id, days); err != nil {
+				failCount++
+				continue
+			}
+			if inst.Status == "expired" {
+				_ = s.db.SetInstanceStatus(ctx, id, "stopped", "")
+			}
+			okCount++
+		case "traffic":
+			next := int64(0)
+			if inst.TrafficLimitGB > 0 {
+				next = time.Now().AddDate(0, 0, 30).Unix()
+			}
+			_ = s.db.ResetTraffic(ctx, id, next)
+			if inst.Status == "overquota" {
+				_ = s.db.SetInstanceStatus(ctx, id, "stopped", "")
+			}
+			okCount++
+		default:
+			s.renderError(w, r, http.StatusBadRequest, "未知的批量操作")
+			return
+		}
+	}
+	ac := userFrom(r)
+	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.batch."+op,
+		fmt.Sprintf("%d ok / %d fail (days=%d)", okCount, failCount, days), clientIP(r))
+	http.Redirect(w, r, "/admin/instances", http.StatusSeeOther)
+}
+
+// handleAdminCodeBatchDelete removes many activation codes at once.
+func (s *Server) handleAdminCodeBatchDelete(w http.ResponseWriter, r *http.Request) {
+	ids := parseIDList(r.FormValue("ids"), 500)
+	for _, id := range ids {
+		_ = s.db.DeleteCode(r.Context(), id)
+	}
+	ac := userFrom(r)
+	s.db.Audit(r.Context(), ac.User.ID, ac.User.Email, "code.batch.delete",
+		fmt.Sprintf("%d 个", len(ids)), clientIP(r))
+	http.Redirect(w, r, "/admin/codes", http.StatusSeeOther)
+}
+
 // ---------- audit ----------
 
 func (s *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {

@@ -78,10 +78,18 @@
   </form>
 
   {{if .Data.Codes}}
+  <div id="batchBar" class="card mb-2" hidden>
+    <div class="btn-row" style="align-items:center">
+      <b>已选 <span id="batchCount">0</span> 个</b>
+      <button class="btn btn-sm btn-danger" data-batch-op="delete" data-batch-url="/admin/codes/batch-delete"
+              data-batch-confirm="删除所选激活码？已使用的会一并删除（不影响已开通的实例）。">批量删除</button>
+    </div>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>激活码</th><th>套餐</th><th>批次</th><th>状态</th><th>使用者</th><th>备注</th><th class="t-right">操作</th></tr>
+        <tr><th>激活码</th><th>套餐</th><th>批次</th><th>状态</th><th>使用者</th><th>备注</th><th class="t-right">操作</th>
+            <th class="t-center" style="width:36px"><input type="checkbox" data-batch-all title="全选"></th></tr>
       </thead>
       <tbody>
         {{range .Data.Codes}}
@@ -105,6 +113,7 @@
             </form>
             {{end}}
           </td>
+          <td class="t-center"><input type="checkbox" class="batch-ck" value="{{.ID}}" aria-label="选择该激活码"></td>
         </tr>
         {{end}}
       </tbody>

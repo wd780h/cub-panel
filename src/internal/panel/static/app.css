@@ -562,6 +562,10 @@ details.panel > .body { padding: 0 20px 20px; }
 .foot-link { color: var(--text-mute); text-decoration: none; border-bottom: 1px dotted var(--line-soft); }
 .foot-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* batch-select column (admin tables) */
+.t-center { text-align: center; }
+.batch-ck, [data-batch-all] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
+
 /* storage usage meter (admin storage page) */
 .meter {
   height: 8px; border-radius: 4px; background: var(--bg-soft);

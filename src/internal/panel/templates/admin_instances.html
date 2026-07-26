@@ -11,10 +11,25 @@
   {{template "flash" .}}
 
   {{if .Data.Instances}}
+  <div id="batchBar" class="card mb-2" hidden>
+    <div class="btn-row" style="align-items:center">
+      <b>已选 <span id="batchCount">0</span> 台</b>
+      <span class="foot-sep">·</span>
+      <input id="batchDays" type="number" value="30" min="1" max="3650"
+             style="width:80px" title="续期天数" aria-label="续期天数">
+      <button class="btn btn-sm" data-batch-op="extend" data-batch-url="/admin/instances/batch"
+              data-batch-confirm="按左侧天数批量续期所选实例？">批量续期</button>
+      <button class="btn btn-sm" data-batch-op="traffic" data-batch-url="/admin/instances/batch"
+              data-batch-confirm="批量清零所选实例的已用流量？超限停机会一并解除。">批量流量清零</button>
+      <button class="btn btn-sm btn-danger" data-batch-op="delete" data-batch-url="/admin/instances/batch"
+              data-batch-confirm="彻底删除所选实例？容器与数据将无法恢复！">批量删除</button>
+    </div>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>实例</th><th>所有者</th><th>节点</th><th>规格</th><th>网络</th><th>状态</th><th>到期</th><th class="t-right">操作</th></tr>
+        <tr><th>实例</th><th>所有者</th><th>节点</th><th>规格</th><th>网络</th><th>状态</th><th>到期</th><th class="t-right">操作</th>
+            <th class="t-center" style="width:36px"><input type="checkbox" data-batch-all title="全选"></th></tr>
       </thead>
       <tbody>
         {{range .Data.Instances}}
@@ -84,6 +99,7 @@
               <button class="btn btn-sm btn-danger" type="submit">删除</button>
             </form>
           </td>
+          <td class="t-center"><input type="checkbox" class="batch-ck" value="{{.ID}}" aria-label="选择 {{.Name}}"></td>
         </tr>
         {{end}}
       </tbody>

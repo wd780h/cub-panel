@@ -169,6 +169,57 @@
     toast('root 密码已重置', 'ok');
   }
 
+  /* ---------- batch selection (admin tables) ---------- */
+
+  function batchChecks() {
+    return Array.prototype.slice.call(document.querySelectorAll('.batch-ck'));
+  }
+  function batchSelected() {
+    return batchChecks().filter(function (c) { return c.checked; })
+      .map(function (c) { return c.value; });
+  }
+  function batchSync() {
+    var bar = document.getElementById('batchBar');
+    if (!bar) return;
+    var n = batchSelected().length;
+    var cnt = document.getElementById('batchCount');
+    if (cnt) cnt.textContent = n;
+    bar.hidden = n === 0;
+  }
+  document.addEventListener('change', function (e) {
+    if (e.target.hasAttribute && e.target.hasAttribute('data-batch-all')) {
+      batchChecks().forEach(function (c) { c.checked = e.target.checked; });
+      batchSync();
+    } else if (e.target.classList && e.target.classList.contains('batch-ck')) {
+      batchSync();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-batch-op]');
+    if (!btn) return;
+    e.preventDefault();
+    var ids = batchSelected();
+    if (!ids.length) return;
+    if (!window.confirm(btn.getAttribute('data-batch-confirm') + '\n（共 ' + ids.length + ' 项）')) return;
+    // A plain form POST keeps the normal CSRF + redirect flow.
+    var f = document.createElement('form');
+    f.method = 'post';
+    f.action = btn.getAttribute('data-batch-url');
+    var add = function (n, v) {
+      var i = document.createElement('input');
+      i.type = 'hidden'; i.name = n; i.value = v;
+      f.appendChild(i);
+    };
+    var csrf = document.querySelector('input[name="_csrf"]');
+    add('_csrf', csrf ? csrf.value : '');
+    add('ids', ids.join(','));
+    add('op', btn.getAttribute('data-batch-op'));
+    var days = document.getElementById('batchDays');
+    if (days) add('days', days.value);
+    document.body.appendChild(f);
+    f.submit();
+  });
+
   /* ---------- reinstall ---------- */
 
   var reBtn = document.getElementById('reinstallBtn');
