@@ -11,7 +11,7 @@ NAT_BRIDGE="${NAT_BRIDGE:-lxdbr0}"
 NAT_SUBNET="${NAT_SUBNET:-}"
 DEFAULT_NAT_SUBNET="10.180.0.1/24"
 EXISTING_BRIDGE="${EXISTING_BRIDGE:-}"      # e.g. docker0/br0: reuse it, skip creation
-POOL="${POOL:-default}"
+POOL="${POOL:-cub}"
 # Pool driver. Disk quotas need a real volume driver — the dir driver silently
 # ignores the root-disk size and guests see the host filesystem in df.
 #   auto (default): lvm thin when the kernel has dm-thin — quotas enforced AND

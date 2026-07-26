@@ -29,7 +29,7 @@ func main() {
 	cfg := agent.Config{}
 	flag.StringVar(&cfg.Listen, "listen", env("CUB_AGENT_LISTEN", "0.0.0.0:8788"), "listen address")
 	flag.StringVar(&cfg.LXDSocket, "lxd-socket", env("CUB_AGENT_SOCKET", "/var/lib/incus/unix.socket"), "Incus/LXD unix socket")
-	flag.StringVar(&cfg.StoragePool, "pool", env("CUB_AGENT_POOL", "default"), "storage pool")
+	flag.StringVar(&cfg.StoragePool, "pool", env("CUB_AGENT_POOL", "cub"), "storage pool")
 	flag.StringVar(&cfg.ImageServer, "image-server", env("CUB_AGENT_IMAGE_SERVER", "https://images.linuxcontainers.org"), "simplestreams image server")
 	flag.StringVar(&cfg.ISODir, "iso-dir", env("CUB_AGENT_ISO_DIR", "/var/lib/cub-panel/isos"), "directory holding uploaded ISO images")
 	flag.BoolVar(&cfg.Verbose, "v", env("CUB_AGENT_VERBOSE", "") != "", "verbose logging")

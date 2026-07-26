@@ -84,7 +84,7 @@ CUB_AGENT_SECRET=$SECRET
 CUB_AGENT_SOCKET=$LXD_SOCKET
 
 # Storage pool used for container root disks.
-CUB_AGENT_POOL=default
+CUB_AGENT_POOL=cub
 
 # simplestreams image server.
 CUB_AGENT_IMAGE_SERVER=https://images.linuxcontainers.org
