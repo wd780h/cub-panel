@@ -550,6 +550,9 @@ if [ -n "$ICP_V4" ] || [ -n "$ICP_PUB4" ] || [ -n "$ICP_V6" ] || [ -n "$ICP_DNS"
     "$ICP_V6" "$ICP_V6PFX" "$ICP_V6GW" "${ICP_V6DEV:-eth1}" "$ICP_DNS" \
     > /etc/cub-panel-net.env
   chmod 600 /etc/cub-panel-net.env
+  # Minimal images ship /usr/local without sbin; creating the file would fail
+  # and, under set -e, abort the whole guest setup before sshd is installed.
+  mkdir -p /usr/local/sbin
   cat > /usr/local/sbin/cub-panel-net-apply <<'APPLY'
 #!/bin/sh
 . /etc/cub-panel-net.env
