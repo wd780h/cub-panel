@@ -189,17 +189,30 @@ Needs Go 1.25+. Only three dependencies: `modernc.org/sqlite` (pure Go, no cgo),
 cd src && go test ./...        # unit tests
 ```
 
+### Updating production binaries
+
+Compile in the source tree; **install production binaries only under `/opt/cub-panel`**:
+
+```sh
+cd /box/env/deploy
+sh ./update-binaries.sh                # build + install only to /opt/cub-panel + restart
+sh ./update-binaries.sh --install-only # skip compile
+```
+
+Path contract: **[docs/OPS-PATHS.md](docs/OPS-PATHS.md)**.
+
 ---
 
 ## 📦 Layout
 
 ```
-├── bin/                built static binaries (amd64 + arm64)
+├── bin/                build output cache (not the live service root)
 ├── src/               full Go source
 │   ├── cmd/           panel / agent entry points
 │   └── internal/      panel · agent · lxd · store · shared
-├── deploy/            install scripts + OpenRC/systemd service files
+├── deploy/            install / update scripts + OpenRC/systemd
 ├── docs/GUIDE.md      detailed deployment & operations guide (中 / [EN](docs/GUIDE.en.md))
+├── docs/OPS-PATHS.md  compile vs deploy path contract (/box/env → /opt/cub-panel)
 └── README.md
 ```
 

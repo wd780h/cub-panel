@@ -177,17 +177,30 @@ GOARCH=arm64 sh ./build.sh     # 交叉编译 → bin/cub-*-arm64（安装脚本
 cd src && go test ./...        # 单元测试
 ```
 
+### 本机更新生产二进制
+
+编译在源码树（本机 `/box/env`），**正式二进制只装到 `/opt/cub-panel`**：
+
+```sh
+cd /box/env/deploy
+sh ./update-binaries.sh          # build + 仅安装到 /opt/cub-panel + 重启服务
+sh ./update-binaries.sh --install-only   # 跳过编译
+```
+
+路径分工与禁止事项见 **[docs/OPS-PATHS.md](docs/OPS-PATHS.md)**。
+
 ---
 
 ## 📦 目录结构
 
 ```
-├── bin/                成品静态二进制（amd64 + arm64）
+├── bin/                构建产物缓存（非生产运行目录）
 ├── src/               完整 Go 源码
 │   ├── cmd/           panel / agent 入口
 │   └── internal/      panel · agent · lxd · store · shared
-├── deploy/            安装脚本 + OpenRC/systemd 服务文件
+├── deploy/            安装 / 更新脚本 + OpenRC/systemd
 ├── docs/GUIDE.md      详细部署与运维文档
+├── docs/OPS-PATHS.md  编译与部署路径规范（/box/env → /opt/cub-panel）
 └── README.md
 ```
 

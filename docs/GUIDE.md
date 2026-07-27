@@ -16,23 +16,38 @@
 
 ---
 
-## 目录结构
+## 目录结构（源码 vs 运行时）
+
+> **本机运维硬规则**：编译只在源码树完成，**生产二进制只部署到 `/opt/cub-panel`**。  
+> 详见 [OPS-PATHS.md](OPS-PATHS.md)。
+
+**源码 / 编译工作区**（仓库根，本机常为 `/box/env`；Agent 容器内 `/host/box/env`）：
 
 ```
-/opt/cub-panel/                 ← 安装目标（本仓库为 /host/box/env）
-├── bin/
-│   ├── cub-panel         主控二进制（13 MB）
-│   └── cub-agent         被控二进制（6.6 MB）
-├── src/                     完整 Go 源码
-├── data/                    SQLite 数据库（运行时生成）
+/box/env/                       ← 源码 + 编译（不是服务运行目录）
+├── bin/                        构建产物缓存（build.sh 输出）
+├── src/                        完整 Go 源码
 ├── deploy/
-│   ├── setup-lxd-node.sh    在宿主机上装好 Incus、存储池、网桥
-│   ├── install-panel.sh     安装主控 + 服务
-│   ├── install-agent.sh     安装被控 + 服务（自动生成密钥）
-│   ├── build.sh             从源码重新编译
-│   ├── openrc/              Alpine 服务文件
-│   └── systemd/             Debian/Ubuntu 服务文件
+│   ├── setup-lxd-node.sh       宿主机 Incus / 存储池 / 网桥
+│   ├── install-panel.sh        安装主控 → /opt/cub-panel
+│   ├── install-agent.sh        安装被控 → /opt/cub-panel
+│   ├── build.sh                编译到 ../bin
+│   ├── update-binaries.sh      编译并只更新 /opt/cub-panel/bin
+│   ├── openrc/                 Alpine 服务文件
+│   └── systemd/                Debian/Ubuntu 服务文件
+├── docs/OPS-PATHS.md           编译/部署路径规范
 └── README.md
+```
+
+**运行时安装目标**（`PANEL_HOME`，服务实际读取的路径）：
+
+```
+/opt/cub-panel/                 ← 唯一生产部署根目录
+├── bin/cub-panel               主控二进制
+├── bin/cub-agent               被控二进制
+├── cub-panel.env / cub-agent.env
+├── data/                       SQLite 等运行时数据
+└── DEPLOY_PATHS.txt            路径约定标记
 ```
 
 ---
@@ -44,7 +59,7 @@
 在面板机上：
 
 ```sh
-cd /host/box/env/deploy
+cd /box/env/deploy
 sh ./install-panel.sh
 ```
 
@@ -60,7 +75,7 @@ sh ./install-panel.sh
 在要跑容器的机器上：
 
 ```sh
-cd /host/box/env/deploy
+cd /box/env/deploy
 sh ./setup-lxd-node.sh
 ```
 

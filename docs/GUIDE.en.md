@@ -13,23 +13,38 @@ The panel is **bilingual (中/EN)** with automatic **light/dark** theme.
 
 ---
 
-## Layout
+## Layout (source vs runtime)
+
+> **Ops rule**: compile only in the source tree; **production binaries install only to `/opt/cub-panel`**.  
+> See [OPS-PATHS.md](OPS-PATHS.md) (Chinese ops note for this host; paths apply generally).
+
+**Source / build workspace** (repo root, e.g. `/box/env` on this host):
 
 ```
-/opt/cub-panel/                ← install target
-├── bin/
-│   ├── cub-panel              master binary
-│   └── cub-agent              agent binary
-├── src/                         full Go source
-├── data/                        SQLite database (created at runtime)
+/box/env/                       ← source + compile (not the live service root)
+├── bin/                        build output cache (from build.sh)
+├── src/                        full Go source
 ├── deploy/
-│   ├── setup-lxd-node.sh        install Incus, storage pool, bridge on a host
-│   ├── install-panel.sh         install the master + service
-│   ├── install-agent.sh         install the agent + service (auto-generates key & cert)
-│   ├── build.sh                 recompile from source
-│   ├── openrc/                  Alpine service files
-│   └── systemd/                 Debian/Ubuntu service files
+│   ├── setup-lxd-node.sh       Incus / pool / bridge on a host
+│   ├── install-panel.sh        install master → /opt/cub-panel
+│   ├── install-agent.sh        install agent → /opt/cub-panel
+│   ├── build.sh                compile into ../bin
+│   ├── update-binaries.sh      build + install only into /opt/cub-panel/bin
+│   ├── openrc/                 Alpine service files
+│   └── systemd/                Debian/Ubuntu service files
+├── docs/OPS-PATHS.md           compile vs deploy path contract
 └── README.md
+```
+
+**Runtime install target** (`PANEL_HOME`):
+
+```
+/opt/cub-panel/                 ← sole production deploy root
+├── bin/cub-panel               master binary
+├── bin/cub-agent               agent binary
+├── cub-panel.env / cub-agent.env
+├── data/                       SQLite etc.
+└── DEPLOY_PATHS.txt            path-contract marker
 ```
 
 ---
@@ -41,7 +56,7 @@ The panel is **bilingual (中/EN)** with automatic **light/dark** theme.
 On the panel host:
 
 ```sh
-cd /opt/cub-panel/deploy && sh ./install-panel.sh
+cd /box/env/deploy && sh ./install-panel.sh
 ```
 
 Installs the binary to `/opt/cub-panel`, writes `/opt/cub-panel/cub-panel.env`, and
@@ -52,7 +67,7 @@ that, set `CUB_PANEL_ALLOW_SIGNUP=0` and restart to close public sign-up.
 ### 2. Prepare a host node
 
 ```sh
-cd /opt/cub-panel/deploy && sh ./setup-lxd-node.sh
+cd /box/env/deploy && sh ./setup-lxd-node.sh
 ```
 
 Automatically installs **Incus** (no snap needed); reuses an existing LXD install:

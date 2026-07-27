@@ -1,6 +1,10 @@
 #!/bin/sh
-# Rebuild both binaries from source into ../bin.
+# Rebuild both binaries from source into ../bin (build cache only).
 # Requires Go 1.25+. Produces static, cgo-free binaries.
+#
+# Production install is NOT this directory — deploy only to /opt/cub-panel
+# via update-binaries.sh or install-panel.sh / install-agent.sh.
+# See docs/OPS-PATHS.md.
 #
 # Cross-compile for other node architectures by overriding GOARCH; the output
 # then gets an arch suffix so it never clobbers the native build:
