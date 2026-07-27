@@ -55,6 +55,13 @@
           </div>
 
           <div class="field span2">
+            <label for="n-domain">域名 / DDNS</label>
+            <input id="n-domain" type="text" name="domain" maxlength="200"
+                   placeholder="node1.example.com 或公网 IP" class="mono">
+            <p class="hint">用户连接信息中的 NAT IP。填写后优先显示此域名/地址，而非 Agent 地址里的主机名（适合 Agent 走内网、对外用 DDNS 的场景）。留空则从 Agent 地址解析。</p>
+          </div>
+
+          <div class="field span2">
             <label for="n-certfp">证书指纹（SHA-256）</label>
             <input id="n-certfp" type="text" name="cert_fp" maxlength="120"
                    placeholder="install-agent.sh 打印的 64 位指纹" class="mono">
@@ -210,6 +217,7 @@
             data-f-name="{{.Name}}"
             data-f-region="{{.Region}}"
             data-f-endpoint="{{.Endpoint}}"
+            data-f-domain="{{.Domain}}"
             data-f-cert_fp="{{.CertFP}}"
             data-f-storage_pool="{{.StoragePool}}"
             data-f-nat_bridge="{{.NATBridge}}"
@@ -238,7 +246,10 @@
             {{if not .Enabled}}<span class="tag">已停用</span>{{end}}
             <div class="muted" style="font-size:.8rem">{{.Region}}</div>
           </td>
-          <td class="mono dim">{{.Endpoint}}</td>
+          <td class="mono dim">
+            {{.Endpoint}}
+            {{if .Domain}}<div style="font-size:.8rem;margin-top:2px">NAT: {{.Domain}}</div>{{end}}
+          </td>
           <td>
             {{if eq .LastStatus "ok"}}
               <span class="badge ok" data-node-status="{{.ID}}">在线</span>

@@ -209,7 +209,7 @@ func (s *Server) handleDeployPost(w http.ResponseWriter, r *http.Request) {
 	p := s.newPage(r, "开通成功", "dashboard")
 	p.Data["Inst"] = inst
 	p.Data["RootPassword"] = rootPW
-	p.Data["SSHHost"] = hostOnly(node.Endpoint)
+	p.Data["SSHHost"] = nodePublicHost(node)
 	s.render(w, r, "redeem_ok.html", p)
 }
 

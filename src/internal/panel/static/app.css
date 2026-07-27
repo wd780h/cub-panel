@@ -447,6 +447,14 @@ td .mono { font-size: .84em; }
 .t-right { text-align: right; }
 .t-actions { white-space: nowrap; }
 .t-actions form { display: inline; }
+/* Inline table selects must not expand to the longest option text. */
+.t-actions select,
+select.select-compact {
+  width: auto; max-width: 160px; min-width: 0;
+  padding: 6px 28px 6px 8px;
+  font-size: .82rem;
+  text-overflow: ellipsis;
+}
 
 .empty { padding: 46px 20px; text-align: center; color: var(--text-mute); }
 

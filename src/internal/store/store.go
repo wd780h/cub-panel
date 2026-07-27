@@ -301,6 +301,10 @@ func migrate(sdb *sql.DB, driver string) error {
 		`ALTER TABLE plans ADD COLUMN extra_disks TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE instances ADD COLUMN extra_disks TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE plans ADD COLUMN node_id INTEGER NOT NULL DEFAULT 0`,
+		// Default 3 preserves the previous hard-coded per-instance snapshot cap.
+		`ALTER TABLE plans ADD COLUMN snapshots INTEGER NOT NULL DEFAULT 3`,
+		// Public hostname / DDNS for tenant-facing NAT connection info.
+		`ALTER TABLE nodes ADD COLUMN domain TEXT NOT NULL DEFAULT ''`,
 	} {
 		if driver == MySQL {
 			stmt = strings.ReplaceAll(stmt, "TEXT NOT NULL DEFAULT", "VARCHAR(1024) NOT NULL DEFAULT")

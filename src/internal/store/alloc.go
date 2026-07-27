@@ -390,6 +390,135 @@ func pickPorts(node *Node, used map[int]bool) (ssh, from, to int, err error) {
 	return 0, 0, 0, errors.New("no free port block on node")
 }
 
+// PortClaim is the result of an admin port reassignment (range or count).
+type PortClaim struct {
+	SSHPort  int
+	PortFrom int
+	PortTo   int
+}
+
+// ClaimPorts reassigns an instance's SSH port and/or forwarded port block.
+//
+//   - sshPort: 0 keeps the instance's current SSH port; >0 claims that port.
+//   - mode "range": use portFrom/portTo exactly (0/0 clears the block).
+//   - mode "count": pick a free contiguous block of size portCount
+//     (0 clears the block). preferFrom, when free and wide enough, is tried first.
+//
+// exceptID treats that instance's current ports as free. The claim is only
+// durable once the caller persists it — wrap with AllocSection.
+func (d *DB) ClaimPorts(ctx context.Context, node *Node, exceptID int64, sshPort int, mode string, portFrom, portTo, portCount, preferFrom int) (*PortClaim, error) {
+	used, err := d.nodeUsageExcept(ctx, node.ID, exceptID)
+	if err != nil {
+		return nil, err
+	}
+	lo, hi := node.PortMin, node.PortMax
+	if lo < 1024 || hi > 65535 || hi <= lo {
+		return nil, fmt.Errorf("node %s has an invalid port range", node.Name)
+	}
+
+	// Resolve the instance's current SSH/block when the caller wants to keep them.
+	var curSSH, curFrom int
+	if exceptID > 0 {
+		if inst, ierr := d.InstanceByID(ctx, exceptID); ierr == nil {
+			curSSH, curFrom = inst.SSHPort, inst.PortFrom
+		}
+	}
+	ssh := sshPort
+	if ssh == 0 {
+		ssh = curSSH
+	}
+	if ssh != 0 {
+		if ssh < lo || ssh > hi {
+			return nil, fmt.Errorf("SSH 端口 %d 不在节点范围 %d–%d 内", ssh, lo, hi)
+		}
+		if used.ports[ssh] {
+			return nil, fmt.Errorf("SSH 端口 %d 已被占用", ssh)
+		}
+	}
+
+	claim := &PortClaim{SSHPort: ssh}
+	switch mode {
+	case "range":
+		if portFrom == 0 && portTo == 0 {
+			return claim, nil
+		}
+		if portFrom < lo || portTo > hi || portFrom > portTo {
+			return nil, fmt.Errorf("端口范围须在 %d–%d 内且起始≤结束", lo, hi)
+		}
+		if err := ensurePortsFree(used.ports, portFrom, portTo, ssh); err != nil {
+			return nil, err
+		}
+		claim.PortFrom, claim.PortTo = portFrom, portTo
+	case "count":
+		if portCount < 0 {
+			return nil, errors.New("端口数量不能为负")
+		}
+		if portCount == 0 {
+			return claim, nil
+		}
+		if portCount > hi-lo+1 {
+			return nil, fmt.Errorf("端口数量 %d 超过节点可用范围", portCount)
+		}
+		// Prefer expanding/keeping around the current block when possible.
+		if preferFrom == 0 {
+			preferFrom = curFrom
+		}
+		from, to, perr := pickPortBlock(lo, hi, portCount, used.ports, preferFrom, ssh)
+		if perr != nil {
+			return nil, perr
+		}
+		claim.PortFrom, claim.PortTo = from, to
+	default:
+		return nil, fmt.Errorf("unknown port claim mode %q", mode)
+	}
+	return claim, nil
+}
+
+// ensurePortsFree reports an error if any port in [from,to] is taken or equals
+// reserved (typically the SSH port).
+func ensurePortsFree(used map[int]bool, from, to int, reserved ...int) error {
+	res := map[int]bool{}
+	for _, p := range reserved {
+		if p > 0 {
+			res[p] = true
+		}
+	}
+	for p := from; p <= to; p++ {
+		if used[p] {
+			return fmt.Errorf("端口 %d 已被占用", p)
+		}
+		if res[p] {
+			return fmt.Errorf("端口 %d 与 SSH/VNC 端口冲突", p)
+		}
+	}
+	return nil
+}
+
+// pickPortBlock finds a free contiguous window of `each` ports in [lo,hi],
+// avoiding used ports and reserved (SSH). preferFrom is tried first when set.
+func pickPortBlock(lo, hi, each int, used map[int]bool, preferFrom, reserved int) (from, to int, err error) {
+	try := func(start int) bool {
+		if start < lo || start+each-1 > hi {
+			return false
+		}
+		for p := start; p < start+each; p++ {
+			if used[p] || (reserved > 0 && p == reserved) {
+				return false
+			}
+		}
+		return true
+	}
+	if preferFrom > 0 && try(preferFrom) {
+		return preferFrom, preferFrom + each - 1, nil
+	}
+	for start := lo; start+each-1 <= hi; start++ {
+		if try(start) {
+			return start, start + each - 1, nil
+		}
+	}
+	return 0, 0, errors.New("no free port block on node")
+}
+
 // pickIPv6 returns the lowest free address in the pool, skipping the first few
 // which conventionally belong to the gateway.
 func pickIPv6(cidr string, used map[string]bool) (string, error) {

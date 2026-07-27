@@ -115,7 +115,7 @@ func TestPlanRoundtrip(t *testing.T) {
 		InstanceType: "vm", Features: "aes,nesting", TrafficGB: 100, TrafficMode: "up",
 		RateDownMbps: 100, RateUpMbps: 30, ExtraBridges: "br-a",
 		V4Pool: "10.0.0.10-10.0.0.20", V6Pool: "2001:db8::10-2001:db8::ff", KeepSourceIP: true,
-		Images: "debian/12", PriceCents: 500, DurationDays: 30, Enabled: true,
+		Snapshots: 5, Images: "debian/12", PriceCents: 500, DurationDays: 30, Enabled: true,
 	}
 	id, err := db.SavePlan(ctx, in)
 	if err != nil {
@@ -127,7 +127,7 @@ func TestPlanRoundtrip(t *testing.T) {
 	}
 	if got.Mode != "ipv4v6" || got.V4Pool != "10.0.0.10-10.0.0.20" ||
 		got.V6Pool != "2001:db8::10-2001:db8::ff" || !got.KeepSourceIP ||
-		got.RateDownMbps != 100 || got.ExtraBridges != "br-a" {
+		got.RateDownMbps != 100 || got.ExtraBridges != "br-a" || got.Snapshots != 5 {
 		t.Errorf("roundtrip mismatch: %+v", got)
 	}
 }

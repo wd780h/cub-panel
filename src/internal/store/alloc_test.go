@@ -160,6 +160,41 @@ func TestPickPortsExhaustion(t *testing.T) {
 	}
 }
 
+func TestPickPortBlockPrefersStart(t *testing.T) {
+	used := map[int]bool{20000: true}
+	from, to, err := pickPortBlock(20000, 20100, 5, used, 20010, 20000)
+	if err != nil {
+		t.Fatalf("pickPortBlock: %v", err)
+	}
+	if from != 20010 || to != 20014 {
+		t.Errorf("got %d–%d, want 20010–20014", from, to)
+	}
+}
+
+func TestPickPortBlockSkipsUsed(t *testing.T) {
+	used := map[int]bool{20000: true, 20001: true, 20002: true}
+	from, to, err := pickPortBlock(20000, 20020, 3, used, 20000, 0)
+	if err != nil {
+		t.Fatalf("pickPortBlock: %v", err)
+	}
+	if from != 20003 || to != 20005 {
+		t.Errorf("got %d–%d, want 20003–20005", from, to)
+	}
+}
+
+func TestEnsurePortsFree(t *testing.T) {
+	used := map[int]bool{100: true}
+	if err := ensurePortsFree(used, 101, 105, 99); err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if err := ensurePortsFree(used, 100, 102); err == nil {
+		t.Error("expected occupied error")
+	}
+	if err := ensurePortsFree(map[int]bool{}, 10, 12, 11); err == nil {
+		t.Error("expected reserved conflict")
+	}
+}
+
 func TestPickIPv6SkipsGatewayRange(t *testing.T) {
 	got, err := pickIPv6("2001:db8::/64", map[string]bool{})
 	if err != nil {

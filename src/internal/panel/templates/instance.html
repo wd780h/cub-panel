@@ -63,6 +63,18 @@
   <div class="grid grid-2">
     <div class="card">
       <h3>连接方式</h3>
+      {{if or .SSHPort .PortFrom (and (eq .InstanceType "vm") .VNCPort)}}
+      {{if $.Data.SSHHost}}
+      <div class="field">
+        <label>NAT IP</label>
+        <div class="copy">
+          <code>{{$.Data.SSHHost}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+        <p class="hint">SSH / 端口转发 / VNC 的入口地址（节点配置了域名时优先显示域名）。</p>
+      </div>
+      {{end}}
+      {{end}}
       {{if .SSHPort}}
       <div class="field">
         <label>SSH（NAT 端口）</label>
@@ -94,7 +106,7 @@
       <div class="field">
         <label>可用端口段（TCP + UDP）</label>
         <div class="copy"><code>{{.PortFrom}} – {{.PortTo}}</code></div>
-        <p class="hint">这些端口已从宿主机直通到容器的同名端口。</p>
+        <p class="hint">这些端口已从宿主机（NAT IP）直通到容器的同名端口。</p>
       </div>
       {{end}}
       {{if and (eq .InstanceType "vm") .VNCPort}}
@@ -112,6 +124,9 @@
     <div class="card">
       <h3>运行状态</h3>
       <div class="kv">
+        {{if $.Data.SSHHost}}
+        <div class="row"><span>NAT IP</span><b class="mono">{{$.Data.SSHHost}}</b></div>
+        {{end}}
         <div class="row"><span>内网 IPv4</span><b class="mono" data-field="ipv4">{{if .NATAddr}}{{.NATAddr}}{{else}}—{{end}}</b></div>
         {{if .V4Addr}}<div class="row"><span>公网 IPv4</span><b class="mono">{{.V4Addr}}</b></div>{{end}}
         <div class="row"><span>IPv6</span><b class="mono" data-field="ipv6">{{if .V6Addr}}{{.V6Addr}}{{else}}—{{end}}</b></div>
@@ -169,15 +184,17 @@
     </div>
     {{end}}
 
-    <div class="card" id="snapCard" data-id="{{.ID}}">
+    {{if $.Data.SnapshotLimit}}
+    <div class="card" id="snapCard" data-id="{{.ID}}" data-limit="{{$.Data.SnapshotLimit}}">
       <h3>快照</h3>
-      <p class="hint" style="margin-top:-.4em">最多 3 个。还原会把实例回滚到快照时刻，之后的改动将丢失。</p>
+      <p class="hint" style="margin-top:-.4em">最多 {{$.Data.SnapshotLimit}} 个。还原会把实例回滚到快照时刻，之后的改动将丢失。</p>
       <form id="snapForm" class="flex gap-1" style="margin-bottom:.8em">
         <input type="text" name="snapshot" maxlength="32" placeholder="快照名，如 before-update" class="mono" style="flex:1">
         <button class="btn btn-sm btn-primary" type="submit">创建</button>
       </form>
       <div id="snapList" class="dim" style="font-size:.85rem">加载中…</div>
     </div>
+    {{end}}
 
     <div class="card">
       <h3>备注名</h3>
@@ -189,9 +206,232 @@
         <button class="btn" type="submit">保存</button>
       </form>
     </div>
+
+    {{if and $.User $.User.IsAdmin}}
+    <div class="card" style="grid-column:1/-1">
+      <h3>管理员 · 续期与流量</h3>
+      <p class="hint" style="margin-top:-.4em">
+        到期：{{fmtDate .ExpiresAt}}
+        {{if .TrafficLimitGB}} · 流量 {{bytes .TrafficUsed}} / {{.TrafficLimitGB}}G（{{trafficModeText .TrafficMode}}）{{end}}
+      </p>
+      <div class="form-grid">
+        <form method="post" action="/admin/instances/extend"
+              data-confirm="确认按填写天数续期该实例？">
+          <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <div class="field" style="max-width:200px">
+            <label for="adm-days">续期天数</label>
+            <input id="adm-days" type="number" name="days" value="30" min="1" max="3650" class="mono">
+          </div>
+          <button class="btn btn-primary" type="submit">续期</button>
+        </form>
+        <form method="post" action="/admin/instances/traffic-add"
+              data-confirm="确认增加该实例的流量配额？">
+          <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <div class="field" style="max-width:200px">
+            <label for="adm-add-gb">添加流量 (GB)</label>
+            <input id="adm-add-gb" type="number" name="gb" value="50" min="1" max="1000000" class="mono"
+                   placeholder="例如 50">
+          </div>
+          <p class="hint">在当前配额上叠加，不清除已用流量。
+            {{if .TrafficLimitGB}}当前限额 {{.TrafficLimitGB}} GB。{{else}}当前不限流量，填写后将变为有限额。{{end}}
+            若因超限停机且新配额足够，会恢复为已停止。</p>
+          <button class="btn" type="submit">添加流量</button>
+        </form>
+        {{if .TrafficLimitGB}}
+        <form method="post" action="/admin/instances/traffic-reset"
+              data-confirm="清零该实例的已用流量？超限停机会一并解除。">
+          <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <p class="hint" style="margin-top:1.6em">将已用流量清零，并重新计算下个 30 天计费周期。若状态为「流量超限」会改为已停止。</p>
+          <button class="btn" type="submit">重置流量</button>
+        </form>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="card" style="grid-column:1/-1">
+      <h3>管理员 · 修改 IP</h3>
+      <p class="hint" style="margin-top:-.4em">
+        修改后会下发到节点并重写访客内地址。字段留空表示保持原值；填 <code>auto</code> 则从地址池自动重分配。
+        SSH / 端口段保持不变。
+      </p>
+      <form method="post" action="/admin/instances/ip"
+            data-confirm="确认修改该实例的 IP？会短暂影响网络连通。">
+        <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <div class="form-grid">
+          {{if or .NATAddr (eq .Mode "nat") (eq .Mode "ipv6") (eq .Mode "ipv4") (eq .Mode "ipv4v6")}}
+          <div class="field">
+            <label for="adm-nat">内网 IPv4</label>
+            <input id="adm-nat" type="text" name="nat_addr" value="{{.NATAddr}}" maxlength="64" class="mono"
+                   placeholder="留空保持 · auto 重分配">
+          </div>
+          {{end}}
+          {{if or .V4Addr (eq .Mode "ipv4") (eq .Mode "ipv4only") (eq .Mode "ipv4v6")}}
+          <div class="field">
+            <label for="adm-v4">公网 IPv4</label>
+            <input id="adm-v4" type="text" name="v4_addr" value="{{.V4Addr}}" maxlength="64" class="mono"
+                   placeholder="留空保持 · auto 重分配">
+          </div>
+          {{end}}
+          {{if or .V6Addr (eq .Mode "ipv6") (eq .Mode "ipv6only") (eq .Mode "ipv4v6")}}
+          <div class="field">
+            <label for="adm-v6">IPv6</label>
+            <input id="adm-v6" type="text" name="v6_addr" value="{{.V6Addr}}" maxlength="64" class="mono"
+                   placeholder="留空保持 · auto 重分配">
+          </div>
+          {{end}}
+        </div>
+        {{if .PortFrom}}
+        <p class="hint">当前端口段：<code class="mono">{{.PortFrom}}–{{.PortTo}}</code>
+          {{if .SSHPort}} · SSH：<code class="mono">{{.SSHPort}}</code>{{end}}
+          （端口分配不随 IP 修改变化）</p>
+        {{else if .SSHPort}}
+        <p class="hint">当前 SSH 端口：<code class="mono">{{.SSHPort}}</code>（端口分配不随 IP 修改变化）</p>
+        {{end}}
+        <div class="btn-row mt-1">
+          <button class="btn btn-primary" type="submit">保存 IP</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card" style="grid-column:1/-1">
+      <h3>管理员 · 调整规格</h3>
+      <p class="hint" style="margin-top:-.4em">
+        调整 CPU / 内存 / 硬盘 / 带宽限制。磁盘只能扩大，不能缩小。带宽填 0 表示不限速。
+      </p>
+      <form method="post" action="/admin/instances/resize"
+            data-confirm="确认按填写规格调整该实例？磁盘只能扩大。">
+        <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <div class="form-grid">
+          <div class="field">
+            <label for="adm-cpu">CPU（核）</label>
+            <input id="adm-cpu" type="number" name="cpu" value="{{.CPU}}" min="1" max="64" class="mono">
+          </div>
+          <div class="field">
+            <label for="adm-mem">内存（MB）</label>
+            <input id="adm-mem" type="number" name="memory_mb" value="{{.MemoryMB}}" min="64" max="262144" class="mono">
+          </div>
+          <div class="field">
+            <label for="adm-disk">硬盘（GB）</label>
+            <input id="adm-disk" type="number" name="disk_gb" value="{{.DiskGB}}" min="{{.DiskGB}}" max="4096" class="mono">
+          </div>
+          <div class="field">
+            <label for="adm-down">下行带宽（Mbps，0=不限）</label>
+            <input id="adm-down" type="number" name="rate_down_mbps" value="{{.RateDownMbps}}" min="0" max="100000" class="mono">
+          </div>
+          <div class="field">
+            <label for="adm-up">上行带宽（Mbps，0=不限）</label>
+            <input id="adm-up" type="number" name="rate_up_mbps" value="{{.RateUpMbps}}" min="0" max="100000" class="mono">
+          </div>
+        </div>
+        <div class="btn-row mt-1">
+          <button class="btn btn-primary" type="submit">应用规格</button>
+        </div>
+      </form>
+    </div>
+
+    {{if or .SSHPort .PortFrom (eq .Mode "nat") (eq .Mode "ipv6") (eq .Mode "ipv4") (eq .Mode "ipv4v6")}}
+    <div class="card" style="grid-column:1/-1">
+      <h3>管理员 · 修改端口转发</h3>
+      <p class="hint" style="margin-top:-.4em">
+        可自定义端口转发范围，或按数量自动分配空闲段。SSH 端口留空或填 0 表示保持不变。
+        {{if $.Data.Node}}节点可用端口池：<code class="mono">{{$.Data.Node.PortMin}}–{{$.Data.Node.PortMax}}</code>
+        （默认每实例 {{$.Data.Node.PortsEach}} 个）。{{end}}
+      </p>
+      <p class="hint">
+        当前：
+        {{if .SSHPort}}SSH <code class="mono">{{.SSHPort}}</code>{{else}}无 SSH{{end}}
+        {{if .PortFrom}} · 端口段 <code class="mono">{{.PortFrom}}–{{.PortTo}}</code>
+          {{if $.Data.PortCount}}（{{$.Data.PortCount}} 个）{{end}}
+        {{else}} · 无转发段{{end}}
+      </p>
+      <div class="form-grid">
+        <form method="post" action="/admin/instances/ports"
+              data-confirm="确认按指定范围修改端口转发？会重写节点 DNAT 规则。">
+          <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <input type="hidden" name="mode" value="range">
+          <h4 style="margin:0 0 .6em;font-size:.92rem">指定范围</h4>
+          <div class="field">
+            <label for="adm-ssh-r">SSH 端口（可选）</label>
+            <input id="adm-ssh-r" type="number" name="ssh_port" value="{{.SSHPort}}" min="0" max="65535" class="mono"
+                   placeholder="0 = 保持">
+          </div>
+          <div class="field">
+            <label for="adm-pfrom">起始端口</label>
+            <input id="adm-pfrom" type="number" name="port_from" value="{{.PortFrom}}" min="0" max="65535" class="mono">
+          </div>
+          <div class="field">
+            <label for="adm-pto">结束端口</label>
+            <input id="adm-pto" type="number" name="port_to" value="{{.PortTo}}" min="0" max="65535" class="mono">
+          </div>
+          <p class="hint">起止都填 0 表示清除转发段（仅保留 SSH）。须在节点端口池内且未被占用。</p>
+          <button class="btn btn-primary" type="submit">应用指定范围</button>
+        </form>
+        <form method="post" action="/admin/instances/ports"
+              data-confirm="确认按数量自动分配端口转发段？会重写节点 DNAT 规则。">
+          <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <input type="hidden" name="mode" value="count">
+          <h4 style="margin:0 0 .6em;font-size:.92rem">按数量自动分配</h4>
+          <div class="field">
+            <label for="adm-ssh-c">SSH 端口（可选）</label>
+            <input id="adm-ssh-c" type="number" name="ssh_port" value="{{.SSHPort}}" min="0" max="65535" class="mono"
+                   placeholder="0 = 保持">
+          </div>
+          <div class="field">
+            <label for="adm-pcnt">端口数量</label>
+            <input id="adm-pcnt" type="number" name="ports_count"
+                   value="{{if $.Data.PortCount}}{{$.Data.PortCount}}{{else if $.Data.Node}}{{$.Data.Node.PortsEach}}{{else}}10{{end}}"
+                   min="0" max="500" class="mono">
+          </div>
+          <p class="hint">填 0 清除转发段。优先尝试保留当前起始端口；不够则选节点上第一段空闲连续端口。</p>
+          <button class="btn btn-primary" type="submit">按数量自动分配</button>
+        </form>
+      </div>
+    </div>
+    {{end}}
+
+    {{$nid := .NodeID}}
+    {{if gt (len $.Data.Nodes) 1}}
+    <div class="card" style="grid-column:1/-1">
+      <h3>管理员 · 迁移到其他节点</h3>
+      <p class="hint" style="margin-top:-.4em">
+        冷迁移：会先停机再复制磁盘，期间不可用。带附加数据盘的实例暂不支持。
+        当前节点：<b>{{.NodeName}}</b>
+      </p>
+      <form method="post" action="/admin/instances/migrate"
+            data-confirm="确认冷迁移该实例到所选节点？期间不可用。">
+        <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <div class="field" style="max-width:280px">
+          <label for="adm-dest">目标节点</label>
+          <select id="adm-dest" name="dest_node" class="select-compact" required>
+            <option value="">选择目标节点…</option>
+            {{range $.Data.Nodes}}{{if and (ne .ID $nid) .Enabled}}
+            <option value="{{.ID}}" title="{{.Name}}">{{.Name}}</option>
+            {{end}}{{end}}
+          </select>
+        </div>
+        <div class="btn-row mt-1">
+          <button class="btn btn-primary" type="submit">开始迁移</button>
+        </div>
+      </form>
+    </div>
+    {{end}}
+    {{end}}
   </div>
 
-  <p class="mt-3"><a class="btn btn-ghost btn-sm" href="/app">← 返回实例列表</a></p>
+  <p class="mt-3">
+    {{if and $.User $.User.IsAdmin}}
+    <a class="btn btn-ghost btn-sm" href="/admin/instances">← 返回实例管理</a>
+    {{end}}
+    <a class="btn btn-ghost btn-sm" href="/app">← 返回我的实例</a>
+  </p>
 </main>
 {{end}}
 

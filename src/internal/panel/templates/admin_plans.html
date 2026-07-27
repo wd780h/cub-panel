@@ -115,6 +115,11 @@
             <input id="p-rup" type="number" name="rate_up_mbps" value="0" min="0" max="100000">
             <p class="hint">0 表示不限速。</p>
           </div>
+          <div class="field">
+            <label for="p-snaps">快照数量</label>
+            <input id="p-snaps" type="number" name="snapshots" value="3" min="0" max="50">
+            <p class="hint">每实例可保留的快照上限。填 0 则用户后台不显示快照功能。</p>
+          </div>
 
           <div class="field span2">
             <label for="p-extrabr">附加网卡网桥</label>
@@ -234,6 +239,7 @@
             data-f-traffic_mode="{{.TrafficMode}}"
             data-f-rate_down_mbps="{{.RateDownMbps}}"
             data-f-rate_up_mbps="{{.RateUpMbps}}"
+            data-f-snapshots="{{.Snapshots}}"
             data-f-duration_days="{{.DurationDays}}"
             data-f-sort_order="{{.SortOrder}}"
             data-f-enabled="{{if .Enabled}}1{{else}}0{{end}}">
@@ -243,7 +249,8 @@
           </td>
           <td class="mono nowrap">{{.CPU}}C / {{.MemoryMB}}M / {{.DiskGB}}G
             <div class="dim" style="font-size:.78rem">{{if .TrafficGB}}{{.TrafficGB}}G/月 · {{trafficModeText .TrafficMode}}{{else}}不限流量{{end}}
-              · {{if or .RateDownMbps .RateUpMbps}}↓{{.RateDownMbps}}/↑{{.RateUpMbps}} Mbps{{else}}不限速{{end}}</div></td>
+              · {{if or .RateDownMbps .RateUpMbps}}↓{{.RateDownMbps}}/↑{{.RateUpMbps}} Mbps{{else}}不限速{{end}}
+              · {{if .Snapshots}}快照 {{.Snapshots}}{{else}}无快照{{end}}</div></td>
           <td>{{modeText .Mode}}{{if eq .InstanceType "vm"}}<br><span class="tag">KVM Beta</span>{{end}}{{range .FeatureList}}<br><span class="tag">{{featText .}}</span>{{end}}</td>
           <td class="dim" style="font-size:.82rem">{{.Images}}</td>
           <td class="mono nowrap">{{if .PriceCents}}{{money .PriceCents}} 元{{else}}—{{end}}</td>

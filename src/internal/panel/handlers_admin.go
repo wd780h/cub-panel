@@ -73,6 +73,7 @@ func (s *Server) handleAdminNodeSave(w http.ResponseWriter, r *http.Request) {
 		Endpoint:     formStr(r, "endpoint", 200),
 		Secret:       formStr(r, "secret", 200),
 		CertFP:       formStr(r, "cert_fp", 120),
+		Domain:       strings.ToLower(strings.TrimSpace(formStr(r, "domain", 200))),
 		StoragePool:  formStr(r, "storage_pool", 32),
 		NATBridge:    formStr(r, "nat_bridge", 15),
 		NATSubnet:    formStr(r, "nat_subnet", 43),
@@ -127,6 +128,8 @@ func validateNode(n *store.Node) error {
 		return fmt.Errorf("节点名只能使用小写字母、数字与连字符")
 	case n.Endpoint == "" || (!strings.HasPrefix(n.Endpoint, "http://") && !strings.HasPrefix(n.Endpoint, "https://")):
 		return fmt.Errorf("节点地址必须以 http:// 或 https:// 开头")
+	case n.Domain != "" && !validNodeDomain(n.Domain):
+		return fmt.Errorf("域名/DDNS 格式不正确（填写主机名，如 node1.example.com）")
 	case n.NATBridge == "":
 		return fmt.Errorf("请填写 NAT 网桥名")
 	case n.PortMax <= n.PortMin:
@@ -186,6 +189,39 @@ func isHex(s string) bool {
 	for _, c := range s {
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
+		}
+	}
+	return true
+}
+
+// validNodeDomain accepts a bare hostname, FQDN, or IP used as the public
+// connection address shown to tenants (domain / DDNS field).
+func validNodeDomain(s string) bool {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, ".")
+	if s == "" || len(s) > 253 {
+		return false
+	}
+	if strings.Contains(s, "://") || strings.ContainsAny(s, "/ \\") {
+		return false
+	}
+	// Bare IP (v4 or v6) is allowed when Endpoint is internal-only.
+	if net.ParseIP(s) != nil {
+		return true
+	}
+	if strings.ContainsAny(s, ":@") {
+		return false
+	}
+	for _, label := range strings.Split(s, ".") {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+		for i, c := range label {
+			ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+				(c >= '0' && c <= '9') || (c == '-' && i > 0 && i < len(label)-1)
+			if !ok {
+				return false
+			}
 		}
 	}
 	return true
@@ -432,6 +468,8 @@ func (s *Server) handleAdminPlanSave(w http.ResponseWriter, r *http.Request) {
 	pl.TrafficMode = trafficModeOr(formStr(r, "traffic_mode", 8))
 	pl.RateDownMbps = formInt(r, "rate_down_mbps", 0, 0, 100000)
 	pl.RateUpMbps = formInt(r, "rate_up_mbps", 0, 0, 100000)
+	// 0 disables the tenant snapshot UI; hard cap keeps a single instance sane.
+	pl.Snapshots = formInt(r, "snapshots", 3, 0, 50)
 	pl.ExtraBridges = formStr(r, "extra_bridges", 200)
 	pl.V4Pool = formStr(r, "v4_pool", 200)
 	pl.V6Pool = formStr(r, "v6_pool", 400)
@@ -883,8 +921,6 @@ func (s *Server) handleAdminInstances(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("ok") {
 	case "create":
 		p.Flash = "实例已开始开通，请稍后刷新查看状态。"
-	case "ip":
-		p.Flash = "IP 已修改并下发到节点。"
 	}
 	if e := r.URL.Query().Get("err"); e != "" {
 		p.Error = e
@@ -899,6 +935,24 @@ func adminInstErr(w http.ResponseWriter, r *http.Request, msg string) {
 		msg = msg[:200]
 	}
 	http.Redirect(w, r, "/admin/instances?err="+urlQueryEscape(msg), http.StatusSeeOther)
+}
+
+// adminDetailRedirect sends the admin back to an instance detail page after a
+// mutation (IP / resize etc.) so the list stays clean of inline forms.
+func adminDetailRedirect(w http.ResponseWriter, r *http.Request, id int64, ok, errMsg string) {
+	base := fmt.Sprintf("/app/instance/%d", id)
+	switch {
+	case errMsg != "":
+		errMsg = strings.ReplaceAll(errMsg, "\n", " ")
+		if len(errMsg) > 200 {
+			errMsg = errMsg[:200]
+		}
+		http.Redirect(w, r, base+"?err="+urlQueryEscape(errMsg), http.StatusSeeOther)
+	case ok != "":
+		http.Redirect(w, r, base+"?ok="+urlQueryEscape(ok), http.StatusSeeOther)
+	default:
+		http.Redirect(w, r, base, http.StatusSeeOther)
+	}
 }
 
 // handleAdminInstanceCreate opens an instance for a user with optional exact
@@ -975,12 +1029,20 @@ func (s *Server) handleAdminInstanceCreate(w http.ResponseWriter, r *http.Reques
 
 // handleAdminInstanceIP reassigns NAT / dedicated IPv4 / IPv6 on a live
 // instance and pushes the change to the agent (devices + in-guest net).
+// The form lives on the instance detail page (admin-only block).
 func (s *Server) handleAdminInstanceIP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	fail := func(msg string) { adminInstErr(w, r, msg) }
-	inst, err := s.db.InstanceByID(ctx, formInt64(r, "id"))
+	id := formInt64(r, "id")
+	fail := func(msg string) {
+		if id > 0 {
+			adminDetailRedirect(w, r, id, "", msg)
+			return
+		}
+		adminInstErr(w, r, msg)
+	}
+	inst, err := s.db.InstanceByID(ctx, id)
 	if err != nil {
-		fail("实例不存在")
+		adminInstErr(w, r, "实例不存在")
 		return
 	}
 	if inst.Status == "provisioning" || inst.Status == "migrating" {
@@ -1068,10 +1130,8 @@ func (s *Server) handleAdminInstanceIP(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("%s: nat %s→%s v4 %s→%s v6 %s→%s",
 			inst.Name, inst.NATAddr, alloc.NATAddr, inst.V4Addr, alloc.V4Addr, inst.V6Addr, alloc.V6Addr),
 		clientIP(r))
-	http.Redirect(w, r, "/admin/instances?ok=ip", http.StatusSeeOther)
+	adminDetailRedirect(w, r, inst.ID, "ip", "")
 }
-
-
 
 // handleAdminInstanceDelete destroys a container and its record.
 func (s *Server) handleAdminInstanceDelete(w http.ResponseWriter, r *http.Request) {
@@ -1099,16 +1159,25 @@ func (s *Server) handleAdminInstanceDelete(w http.ResponseWriter, r *http.Reques
 }
 
 // handleAdminInstanceResize applies new limits to a live instance.
+// The form lives on the instance detail page (admin-only block).
 func (s *Server) handleAdminInstanceResize(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	inst, err := s.db.InstanceByID(ctx, formInt64(r, "id"))
+	id := formInt64(r, "id")
+	fail := func(msg string) {
+		if id > 0 {
+			adminDetailRedirect(w, r, id, "", msg)
+			return
+		}
+		adminInstErr(w, r, msg)
+	}
+	inst, err := s.db.InstanceByID(ctx, id)
 	if err != nil {
-		s.renderError(w, r, http.StatusNotFound, "实例不存在")
+		adminInstErr(w, r, "实例不存在")
 		return
 	}
 	node, err := s.db.NodeByID(ctx, inst.NodeID)
 	if err != nil {
-		s.renderError(w, r, http.StatusServiceUnavailable, "节点不可用")
+		fail("节点不可用")
 		return
 	}
 	cpu := formInt(r, "cpu", inst.CPU, 1, 64)
@@ -1117,14 +1186,14 @@ func (s *Server) handleAdminInstanceResize(w http.ResponseWriter, r *http.Reques
 	rateDown := formInt(r, "rate_down_mbps", inst.RateDownMbps, 0, 100000)
 	rateUp := formInt(r, "rate_up_mbps", inst.RateUpMbps, 0, 100000)
 	if disk < inst.DiskGB {
-		s.renderError(w, r, http.StatusBadRequest, "磁盘只能扩大，不能缩小")
+		fail("磁盘只能扩大，不能缩小")
 		return
 	}
 
 	dctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if err := agentResize(dctx, node, inst.Name, cpu, mem, disk, rateDown, rateUp); err != nil {
-		s.renderError(w, r, http.StatusBadGateway, "调整失败："+err.Error())
+		fail("调整失败：" + err.Error())
 		return
 	}
 	_ = s.db.ResizeInstance(ctx, inst.ID, cpu, mem, disk, rateDown, rateUp, 0)
@@ -1132,15 +1201,112 @@ func (s *Server) handleAdminInstanceResize(w http.ResponseWriter, r *http.Reques
 	ac := userFrom(r)
 	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.resize",
 		fmt.Sprintf("%s → %dC/%dM/%dG %d/%dMbps", inst.Name, cpu, mem, disk, rateDown, rateUp), clientIP(r))
-	http.Redirect(w, r, "/admin/instances", http.StatusSeeOther)
+	adminDetailRedirect(w, r, inst.ID, "resize", "")
+}
+
+// handleAdminInstancePorts reassigns the SSH port and/or forwarded port block
+// on a live NAT instance and pushes the change via agent reconfigure.
+// mode=range uses port_from/port_to; mode=count auto-picks a free block of
+// ports_count ports. SSH 0 (or empty) keeps the current SSH port.
+func (s *Server) handleAdminInstancePorts(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := formInt64(r, "id")
+	fail := func(msg string) {
+		if id > 0 {
+			adminDetailRedirect(w, r, id, "", msg)
+			return
+		}
+		adminInstErr(w, r, msg)
+	}
+	inst, err := s.db.InstanceByID(ctx, id)
+	if err != nil {
+		adminInstErr(w, r, "实例不存在")
+		return
+	}
+	if !needsNAT(inst.Mode) {
+		fail("该网络模式不使用端口转发")
+		return
+	}
+	if inst.Status == "provisioning" || inst.Status == "migrating" {
+		fail("实例当前状态不允许修改端口")
+		return
+	}
+	node, err := s.db.NodeByID(ctx, inst.NodeID)
+	if err != nil {
+		fail("节点不可用")
+		return
+	}
+
+	mode := strings.TrimSpace(r.FormValue("mode"))
+	if mode != "range" && mode != "count" {
+		fail("请选择修改方式：指定范围或按数量分配")
+		return
+	}
+	// SSH: empty/0 keeps current. Explicit value claims a new port.
+	sshRaw := strings.TrimSpace(r.FormValue("ssh_port"))
+	sshPort := 0
+	if sshRaw != "" {
+		sshPort = formInt(r, "ssh_port", 0, 0, 65535)
+		if sshPort != 0 && sshPort < 1024 {
+			fail("SSH 端口须 ≥ 1024")
+			return
+		}
+	}
+	portFrom := formInt(r, "port_from", 0, 0, 65535)
+	portTo := formInt(r, "port_to", 0, 0, 65535)
+	portCount := formInt(r, "ports_count", 0, 0, 500)
+
+	var claim *store.PortClaim
+	err = store.AllocSection(func() error {
+		var cerr error
+		claim, cerr = s.db.ClaimPorts(ctx, node, inst.ID, sshPort, mode, portFrom, portTo, portCount, inst.PortFrom)
+		if cerr != nil {
+			return cerr
+		}
+		return s.db.UpdateInstancePorts(ctx, inst.ID, claim.SSHPort, claim.PortFrom, claim.PortTo)
+	})
+	if err != nil {
+		fail("端口分配失败：" + err.Error())
+		return
+	}
+
+	moved := *inst
+	moved.SSHPort = claim.SSHPort
+	moved.PortFrom = claim.PortFrom
+	moved.PortTo = claim.PortTo
+	keepSrc := true
+	if pl, perr := s.db.PlanByID(ctx, inst.PlanID); perr == nil {
+		keepSrc = pl.KeepSourceIP
+	}
+	req := buildCreateReq(node, &moved, planFeatures(s, ctx, inst.PlanID), keepSrc, "")
+	dctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	if err := agentReconfigure(dctx, node, inst.Name, req); err != nil {
+		// Roll DB back so the panel stays truthful.
+		_ = s.db.UpdateInstancePorts(ctx, inst.ID, inst.SSHPort, inst.PortFrom, inst.PortTo)
+		fail("节点下发失败：" + err.Error())
+		return
+	}
+
+	ac := userFrom(r)
+	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.ports",
+		fmt.Sprintf("%s: ssh %d→%d ports %d–%d → %d–%d",
+			inst.Name, inst.SSHPort, claim.SSHPort, inst.PortFrom, inst.PortTo, claim.PortFrom, claim.PortTo),
+		clientIP(r))
+	adminDetailRedirect(w, r, inst.ID, "ports", "")
 }
 
 // handleAdminInstanceTrafficReset zeroes an instance's metered usage and
-// lifts an overquota stop.
+// lifts an overquota stop. Form lives on the instance detail page.
 func (s *Server) handleAdminInstanceTrafficReset(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	inst, err := s.db.InstanceByID(ctx, formInt64(r, "id"))
+	id := formInt64(r, "id")
+	inst, err := s.db.InstanceByID(ctx, id)
 	if err != nil {
+		if id > 0 {
+			adminDetailRedirect(w, r, id, "", "实例不存在")
+			return
+		}
 		s.renderError(w, r, http.StatusNotFound, "实例不存在")
 		return
 	}
@@ -1154,10 +1320,61 @@ func (s *Server) handleAdminInstanceTrafficReset(w http.ResponseWriter, r *http.
 	}
 	ac := userFrom(r)
 	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.traffic.reset", inst.Name, clientIP(r))
-	http.Redirect(w, r, "/admin/instances", http.StatusSeeOther)
+	adminDetailRedirect(w, r, inst.ID, "traffic", "")
+}
+
+// handleAdminInstanceTrafficAdd raises an instance's monthly traffic quota by
+// N GB without clearing used counters. If the instance was overquota and the
+// new allowance covers current usage, status is restored to stopped so the
+// user can start again. Form lives on the instance detail page.
+func (s *Server) handleAdminInstanceTrafficAdd(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := formInt64(r, "id")
+	addGB := formInt(r, "gb", 0, 1, 1_000_000)
+
+	inst, err := s.db.InstanceByID(ctx, id)
+	if err != nil {
+		if id > 0 {
+			adminDetailRedirect(w, r, id, "", "实例不存在")
+			return
+		}
+		s.renderError(w, r, http.StatusNotFound, "实例不存在")
+		return
+	}
+	if addGB <= 0 {
+		adminDetailRedirect(w, r, inst.ID, "", "请填写要增加的流量（GB）")
+		return
+	}
+	// Cap so traffic_limit_gb stays within the same bound used for plans.
+	if inst.TrafficLimitGB > 1_000_000-addGB {
+		adminDetailRedirect(w, r, inst.ID, "", "流量配额上限为 1000000 GB")
+		return
+	}
+	if err := s.db.AddInstanceTrafficGB(ctx, inst.ID, addGB); err != nil {
+		adminDetailRedirect(w, r, inst.ID, "", "添加流量失败")
+		return
+	}
+	newLimit := inst.TrafficLimitGB + addGB
+	// Lift overquota only when used bytes now fit under the enlarged quota.
+	if inst.Status == "overquota" {
+		newLimitBytes := int64(newLimit) * 1024 * 1024 * 1024
+		if inst.TrafficUsed() < newLimitBytes {
+			_ = s.db.SetInstanceStatus(ctx, inst.ID, "stopped", "")
+		}
+	}
+	// Unlimited (0) instances that receive a first quota need a reset cycle.
+	if inst.TrafficLimitGB == 0 {
+		next := time.Now().AddDate(0, 0, 30).Unix()
+		_ = s.db.ResetTraffic(ctx, inst.ID, next)
+	}
+	ac := userFrom(r)
+	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.traffic.add",
+		fmt.Sprintf("%s +%d GB → %d GB", inst.Name, addGB, newLimit), clientIP(r))
+	adminDetailRedirect(w, r, inst.ID, "traffic_add", "")
 }
 
 // handleAdminInstanceExtend pushes an instance's expiry out.
+// Form lives on the instance detail page (admin-only block).
 func (s *Server) handleAdminInstanceExtend(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := formInt64(r, "id")
@@ -1165,11 +1382,15 @@ func (s *Server) handleAdminInstanceExtend(w http.ResponseWriter, r *http.Reques
 
 	inst, err := s.db.InstanceByID(ctx, id)
 	if err != nil {
+		if id > 0 {
+			adminDetailRedirect(w, r, id, "", "实例不存在")
+			return
+		}
 		s.renderError(w, r, http.StatusNotFound, "实例不存在")
 		return
 	}
 	if err := s.db.ExtendInstance(ctx, id, days); err != nil {
-		s.renderError(w, r, http.StatusInternalServerError, "续期失败")
+		adminDetailRedirect(w, r, id, "", "续期失败")
 		return
 	}
 	// A renewed instance is no longer expired.
@@ -1179,7 +1400,7 @@ func (s *Server) handleAdminInstanceExtend(w http.ResponseWriter, r *http.Reques
 	ac := userFrom(r)
 	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.extend",
 		fmt.Sprintf("%s +%d 天", inst.Name, days), clientIP(r))
-	http.Redirect(w, r, "/admin/instances", http.StatusSeeOther)
+	adminDetailRedirect(w, r, inst.ID, "extend", "")
 }
 
 // parseIDList parses a comma-separated id list, deduplicated and capped.

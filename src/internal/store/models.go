@@ -174,6 +174,10 @@ type Node struct {
 	Endpoint     string
 	Secret       string
 	CertFP       string // pinned SHA-256 of the agent's self-signed cert; empty = TLS without pinning
+	// Domain is an optional public hostname / DDNS name for this node. When
+	// set, tenant-facing connection info (SSH, VNC, port maps) prefers it over
+	// the host extracted from Endpoint.
+	Domain       string
 	StoragePool  string
 	NATBridge    string
 	NATSubnet    string
@@ -202,7 +206,7 @@ type Node struct {
 	InstanceCount int
 }
 
-const nodeCols = `id, name, region, endpoint, secret, cert_fp, storage_pool, nat_bridge, nat_subnet,
+const nodeCols = `id, name, region, endpoint, secret, cert_fp, domain, storage_pool, nat_bridge, nat_subnet,
 	nat_managed, nat_gw, nat_reserved, dns,
 	port_min, port_max, ports_each, v6_enabled, v6_bridge, v6_cidr, v6_gw,
 	v4_enabled, v4_bridge, v4_cidr, v4_gw,
@@ -210,7 +214,7 @@ const nodeCols = `id, name, region, endpoint, secret, cert_fp, storage_pool, nat
 
 func scanNode(s interface{ Scan(...any) error }) (*Node, error) {
 	var n Node
-	err := s.Scan(&n.ID, &n.Name, &n.Region, &n.Endpoint, &n.Secret, &n.CertFP, &n.StoragePool,
+	err := s.Scan(&n.ID, &n.Name, &n.Region, &n.Endpoint, &n.Secret, &n.CertFP, &n.Domain, &n.StoragePool,
 		&n.NATBridge, &n.NATSubnet, &n.NATManaged, &n.NATGW, &n.NATReserved, &n.DNS,
 		&n.PortMin, &n.PortMax, &n.PortsEach,
 		&n.V6Enabled, &n.V6Bridge, &n.V6CIDR, &n.V6GW,
@@ -226,25 +230,25 @@ func scanNode(s interface{ Scan(...any) error }) (*Node, error) {
 func (d *DB) SaveNode(ctx context.Context, n *Node) (int64, error) {
 	if n.ID == 0 {
 		return d.insertID(ctx,
-			`INSERT INTO nodes (name, region, endpoint, secret, cert_fp, storage_pool, nat_bridge, nat_subnet,
+			`INSERT INTO nodes (name, region, endpoint, secret, cert_fp, domain, storage_pool, nat_bridge, nat_subnet,
 			   nat_managed, nat_gw, nat_reserved, dns,
 			   port_min, port_max, ports_each, v6_enabled, v6_bridge, v6_cidr, v6_gw,
 			   v4_enabled, v4_bridge, v4_cidr, v4_gw,
 			   kvm_enabled, max_instances, enabled, created_at)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			n.Name, n.Region, n.Endpoint, n.Secret, n.CertFP, n.StoragePool, n.NATBridge, n.NATSubnet,
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			n.Name, n.Region, n.Endpoint, n.Secret, n.CertFP, n.Domain, n.StoragePool, n.NATBridge, n.NATSubnet,
 			boolInt(n.NATManaged), n.NATGW, n.NATReserved, n.DNS,
 			n.PortMin, n.PortMax, n.PortsEach, boolInt(n.V6Enabled), n.V6Bridge, n.V6CIDR, n.V6GW,
 			boolInt(n.V4Enabled), n.V4Bridge, n.V4CIDR, n.V4GW,
 			boolInt(n.KVMEnabled), n.MaxInstances, boolInt(n.Enabled), now())
 	}
 	_, err := d.ExecContext(ctx,
-		`UPDATE nodes SET name=?, region=?, endpoint=?, secret=?, cert_fp=?, storage_pool=?, nat_bridge=?,
+		`UPDATE nodes SET name=?, region=?, endpoint=?, secret=?, cert_fp=?, domain=?, storage_pool=?, nat_bridge=?,
 		   nat_subnet=?, nat_managed=?, nat_gw=?, nat_reserved=?, dns=?,
 		   port_min=?, port_max=?, ports_each=?, v6_enabled=?, v6_bridge=?,
 		   v6_cidr=?, v6_gw=?, v4_enabled=?, v4_bridge=?, v4_cidr=?, v4_gw=?,
 		   kvm_enabled=?, max_instances=?, enabled=? WHERE id=?`,
-		n.Name, n.Region, n.Endpoint, n.Secret, n.CertFP, n.StoragePool, n.NATBridge, n.NATSubnet,
+		n.Name, n.Region, n.Endpoint, n.Secret, n.CertFP, n.Domain, n.StoragePool, n.NATBridge, n.NATSubnet,
 		boolInt(n.NATManaged), n.NATGW, n.NATReserved, n.DNS,
 		n.PortMin, n.PortMax, n.PortsEach, boolInt(n.V6Enabled), n.V6Bridge, n.V6CIDR, n.V6GW,
 		boolInt(n.V4Enabled), n.V4Bridge, n.V4CIDR, n.V4GW,
@@ -273,7 +277,7 @@ func (d *DB) ListNodes(ctx context.Context, onlyEnabled bool) ([]*Node, error) {
 	var out []*Node
 	for rows.Next() {
 		var n Node
-		if err := rows.Scan(&n.ID, &n.Name, &n.Region, &n.Endpoint, &n.Secret, &n.CertFP, &n.StoragePool,
+		if err := rows.Scan(&n.ID, &n.Name, &n.Region, &n.Endpoint, &n.Secret, &n.CertFP, &n.Domain, &n.StoragePool,
 			&n.NATBridge, &n.NATSubnet, &n.NATManaged, &n.NATGW, &n.NATReserved, &n.DNS,
 			&n.PortMin, &n.PortMax, &n.PortsEach,
 			&n.V6Enabled, &n.V6Bridge, &n.V6CIDR, &n.V6GW,
@@ -331,6 +335,7 @@ type Plan struct {
 	KeepSourceIP bool   // NAT forwards preserve the real client source IP (DNAT)
 	Mounts       string // host-dir binds "src:dst[:ro]" per line/comma (admin-only)
 	ExtraDisks   string // extra data volumes in GB, comma list ("20,50"), max 4
+	Snapshots    int    // max snapshots per instance; 0 = feature disabled (hidden in tenant UI)
 	Images       string
 	PriceCents   int64 // 0 = not purchasable with balance
 	DurationDays int
@@ -391,14 +396,14 @@ func (p *Plan) AllowsImage(img string) bool {
 }
 
 const planCols = `id, name, description, cpu, memory_mb, disk_gb, mode, instance_type, node_id, features,
-	traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, v6_pool, keep_source_ip, mounts, extra_disks, images,
+	traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, v6_pool, keep_source_ip, mounts, extra_disks, snapshots, images,
 	price_cents, duration_days, enabled, sort_order, created_at`
 
 func scanPlan(s interface{ Scan(...any) error }) (*Plan, error) {
 	var p Plan
 	err := s.Scan(&p.ID, &p.Name, &p.Description, &p.CPU, &p.MemoryMB, &p.DiskGB,
 		&p.Mode, &p.InstanceType, &p.NodeID, &p.Features, &p.TrafficGB, &p.TrafficMode, &p.RateDownMbps, &p.RateUpMbps,
-		&p.ExtraBridges, &p.V4Pool, &p.V6Pool, &p.KeepSourceIP, &p.Mounts, &p.ExtraDisks, &p.Images,
+		&p.ExtraBridges, &p.V4Pool, &p.V6Pool, &p.KeepSourceIP, &p.Mounts, &p.ExtraDisks, &p.Snapshots, &p.Images,
 		&p.PriceCents, &p.DurationDays, &p.Enabled, &p.SortOrder, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -411,18 +416,18 @@ func (d *DB) SavePlan(ctx context.Context, p *Plan) (int64, error) {
 	if p.ID == 0 {
 		return d.insertID(ctx,
 			`INSERT INTO plans (name, description, cpu, memory_mb, disk_gb, mode, instance_type, node_id, features,
-			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, v6_pool, keep_source_ip, mounts, extra_disks, images,
-			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, v6_pool, keep_source_ip, mounts, extra_disks, snapshots, images,
+			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.NodeID, p.Features,
-			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, p.V6Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
+			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, p.V6Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Snapshots, p.Images,
 			p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, now())
 	}
 	_, err := d.ExecContext(ctx,
 		`UPDATE plans SET name=?, description=?, cpu=?, memory_mb=?, disk_gb=?, mode=?, instance_type=?, node_id=?, features=?,
 		   traffic_gb=?, traffic_mode=?, rate_down_mbps=?, rate_up_mbps=?, extra_bridges=?, v4_pool=?, v6_pool=?, keep_source_ip=?,
-		   mounts=?, extra_disks=?, images=?, price_cents=?, duration_days=?, enabled=?, sort_order=? WHERE id=?`,
+		   mounts=?, extra_disks=?, snapshots=?, images=?, price_cents=?, duration_days=?, enabled=?, sort_order=? WHERE id=?`,
 		p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.NodeID, p.Features,
-		p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, p.V6Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
+		p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, p.V6Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Snapshots, p.Images,
 		p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, p.ID)
 	return p.ID, err
 }
@@ -801,6 +806,19 @@ func (d *DB) SetInstanceTraffic(ctx context.Context, id int64, limitGB int, mode
 	return err
 }
 
+// AddInstanceTrafficGB increases an instance's monthly traffic quota by addGB.
+// No-op (returns nil without changing rows) when addGB <= 0. Does not touch
+// used counters or the reset schedule — only the allowance grows.
+func (d *DB) AddInstanceTrafficGB(ctx context.Context, id int64, addGB int) error {
+	if addGB <= 0 {
+		return nil
+	}
+	_, err := d.ExecContext(ctx,
+		`UPDATE instances SET traffic_limit_gb = traffic_limit_gb + ? WHERE id=?`,
+		addGB, id)
+	return err
+}
+
 // RelocateInstance re-points an instance at its new node and network
 // allocation after a migration.
 func (d *DB) RelocateInstance(ctx context.Context, id, nodeID int64, natAddr string, sshPort, portFrom, portTo int, v6Addr, v4Addr string, vncPort int) error {
@@ -816,6 +834,15 @@ func (d *DB) UpdateInstanceAddrs(ctx context.Context, id int64, natAddr, v4Addr,
 	_, err := d.ExecContext(ctx,
 		`UPDATE instances SET nat_addr=?, v4_addr=?, v6_addr=? WHERE id=?`,
 		natAddr, v4Addr, v6Addr, id)
+	return err
+}
+
+// UpdateInstancePorts rewrites the SSH port and forwarded port block of an
+// instance after an admin port reassignment. Addresses are left alone.
+func (d *DB) UpdateInstancePorts(ctx context.Context, id int64, sshPort, portFrom, portTo int) error {
+	_, err := d.ExecContext(ctx,
+		`UPDATE instances SET ssh_port=?, port_from=?, port_to=? WHERE id=?`,
+		sshPort, portFrom, portTo, id)
 	return err
 }
 

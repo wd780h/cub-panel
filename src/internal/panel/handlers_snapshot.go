@@ -12,15 +12,32 @@ import (
 	"cubpanel/internal/store"
 )
 
-// maxSnapshotsPerInstance caps how many snapshots a tenant may keep.
-const maxSnapshotsPerInstance = 3
-
 var snapNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$`)
+
+// planSnapshotLimit returns how many snapshots the instance's plan allows.
+// 0 means the feature is disabled for that plan (UI hidden + API rejected).
+func (s *Server) planSnapshotLimit(ctx context.Context, planID int64) int {
+	if planID <= 0 {
+		return 0
+	}
+	pl, err := s.db.PlanByID(ctx, planID)
+	if err != nil {
+		return 0
+	}
+	if pl.Snapshots < 0 {
+		return 0
+	}
+	return pl.Snapshots
+}
 
 // handleAPISnapshotList returns an instance's snapshots.
 func (s *Server) handleAPISnapshotList(w http.ResponseWriter, r *http.Request) {
 	inst, node, ok := s.ownedInstance(w, r)
 	if !ok {
+		return
+	}
+	if s.planSnapshotLimit(r.Context(), inst.PlanID) <= 0 {
+		s.jsonErr(w, http.StatusForbidden, "当前套餐未开通快照功能")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -33,10 +50,15 @@ func (s *Server) handleAPISnapshotList(w http.ResponseWriter, r *http.Request) {
 	s.jsonOK(w, map[string]any{"snapshots": snaps})
 }
 
-// handleAPISnapshotCreate takes a new snapshot (up to the per-instance cap).
+// handleAPISnapshotCreate takes a new snapshot (up to the plan's per-instance cap).
 func (s *Server) handleAPISnapshotCreate(w http.ResponseWriter, r *http.Request) {
 	inst, node, ok := s.ownedInstance(w, r)
 	if !ok {
+		return
+	}
+	limit := s.planSnapshotLimit(r.Context(), inst.PlanID)
+	if limit <= 0 {
+		s.jsonErr(w, http.StatusForbidden, "当前套餐未开通快照功能")
 		return
 	}
 	snap := formStr(r, "snapshot", 32)
@@ -47,8 +69,8 @@ func (s *Server) handleAPISnapshotCreate(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Minute)
 	defer cancel()
 
-	if cur, err := agentSnapshots(ctx, node, inst.Name); err == nil && len(cur) >= maxSnapshotsPerInstance {
-		s.jsonErr(w, http.StatusConflict, fmt.Sprintf("每台实例最多保留 %d 个快照，请先删除旧快照", maxSnapshotsPerInstance))
+	if cur, err := agentSnapshots(ctx, node, inst.Name); err == nil && len(cur) >= limit {
+		s.jsonErr(w, http.StatusConflict, fmt.Sprintf("每台实例最多保留 %d 个快照，请先删除旧快照", limit))
 		return
 	}
 	if err := agentSnapshotCreate(ctx, node, inst.Name, snap); err != nil {
@@ -64,6 +86,10 @@ func (s *Server) handleAPISnapshotCreate(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleAPISnapshotRestore(w http.ResponseWriter, r *http.Request) {
 	inst, node, ok := s.ownedInstance(w, r)
 	if !ok {
+		return
+	}
+	if s.planSnapshotLimit(r.Context(), inst.PlanID) <= 0 {
+		s.jsonErr(w, http.StatusForbidden, "当前套餐未开通快照功能")
 		return
 	}
 	snap := formStr(r, "snapshot", 32)
@@ -88,6 +114,10 @@ func (s *Server) handleAPISnapshotDelete(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
+	if s.planSnapshotLimit(r.Context(), inst.PlanID) <= 0 {
+		s.jsonErr(w, http.StatusForbidden, "当前套餐未开通快照功能")
+		return
+	}
 	snap := formStr(r, "snapshot", 32)
 	if !snapNameRe.MatchString(snap) {
 		s.jsonErr(w, http.StatusBadRequest, "快照名无效")
@@ -108,44 +138,57 @@ func (s *Server) handleAPISnapshotDelete(w http.ResponseWriter, r *http.Request)
 
 // handleAdminInstanceMigrate cold-migrates an instance to another node. The
 // source is only destroyed after the destination is verified running, so a
-// failure at any step leaves the original intact.
+// failure at any step leaves the original intact. Form lives on the instance
+// detail page (admin-only block).
 func (s *Server) handleAdminInstanceMigrate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	inst, err := s.db.InstanceByID(ctx, formInt64(r, "id"))
+	id := formInt64(r, "id")
+	fail := func(msg string) {
+		if id > 0 {
+			adminDetailRedirect(w, r, id, "", msg)
+			return
+		}
+		adminInstErr(w, r, msg)
+	}
+	inst, err := s.db.InstanceByID(ctx, id)
 	if err != nil {
-		s.renderError(w, r, http.StatusNotFound, "实例不存在")
+		adminInstErr(w, r, "实例不存在")
 		return
 	}
 	src, err := s.db.NodeByID(ctx, inst.NodeID)
 	if err != nil {
-		s.renderError(w, r, http.StatusServiceUnavailable, "源节点不可用")
+		fail("源节点不可用")
 		return
 	}
 	dst, err := s.db.NodeByID(ctx, formInt64(r, "dest_node"))
 	if err != nil || !dst.Enabled {
-		s.renderError(w, r, http.StatusBadRequest, "目标节点无效或已停用")
+		fail("目标节点无效或已停用")
 		return
 	}
 	if dst.ID == src.ID {
-		s.renderError(w, r, http.StatusBadRequest, "目标节点与当前节点相同")
+		fail("目标节点与当前节点相同")
 		return
 	}
 	// The instance backup only carries the root disk; custom data volumes
 	// would be silently left behind, so refuse rather than lose data.
 	if strings.TrimSpace(inst.ExtraDisks) != "" {
-		s.renderError(w, r, http.StatusBadRequest, "带附加数据盘的实例暂不支持跨节点迁移")
+		fail("带附加数据盘的实例暂不支持跨节点迁移")
 		return
 	}
 	if needsV6(inst.Mode) && !dst.V6Enabled {
-		s.renderError(w, r, http.StatusBadRequest, "目标节点未开启独立 IPv6")
+		fail("目标节点未开启独立 IPv6")
 		return
 	}
 	if needsDV4(inst.Mode) && !dst.V4Enabled {
-		s.renderError(w, r, http.StatusBadRequest, "目标节点未开启独立公网 IPv4")
+		fail("目标节点未开启独立公网 IPv4")
 		return
 	}
 	if inst.InstanceType == "vm" && !dst.KVMEnabled {
-		s.renderError(w, r, http.StatusBadRequest, "目标节点未开启 KVM")
+		fail("目标节点未开启 KVM")
+		return
+	}
+	if inst.Status == "provisioning" || inst.Status == "migrating" {
+		fail("实例当前状态不允许迁移")
 		return
 	}
 
@@ -158,7 +201,7 @@ func (s *Server) handleAdminInstanceMigrate(w http.ResponseWriter, r *http.Reque
 	_ = s.db.SetInstanceStatus(ctx, inst.ID, "migrating", "正在迁移到 "+dst.Name)
 	go s.runMigration(inst, src, dst)
 
-	http.Redirect(w, r, "/admin/instances", http.StatusSeeOther)
+	adminDetailRedirect(w, r, inst.ID, "migrate", "")
 }
 
 // runMigration performs the cold migration end to end.

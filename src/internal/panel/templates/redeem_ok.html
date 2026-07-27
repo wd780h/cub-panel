@@ -23,7 +23,14 @@
         </div>
       </div>
 
-      {{if .SSHPort}}
+      {{if and .SSHPort $.Data.SSHHost}}
+      <div class="field">
+        <label>NAT IP</label>
+        <div class="copy">
+          <code>{{$.Data.SSHHost}}</code>
+          <button class="btn btn-sm" type="button" data-copy="__sibling__">复制</button>
+        </div>
+      </div>
       <div class="field">
         <label>SSH 命令</label>
         <div class="copy">

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   endpoint      TEXT    NOT NULL,                    -- https://host:8788
   secret        TEXT    NOT NULL,                    -- HMAC shared secret
   cert_fp       TEXT    NOT NULL DEFAULT '',         -- agent 自签证书 SHA256 指纹（钉扎）
+  domain        TEXT    NOT NULL DEFAULT '',         -- 对外域名/DDNS，优先于 endpoint 主机名展示
   storage_pool  TEXT    NOT NULL DEFAULT 'default',
   -- NAT networking
   nat_bridge    TEXT    NOT NULL DEFAULT 'lxdbr0',
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS plans (
   keep_source_ip INTEGER NOT NULL DEFAULT 1,           -- NAT 端口转发是否保留真实源 IP（DNAT）
   mounts       TEXT    NOT NULL DEFAULT '',            -- 宿主机目录挂载 src:dst[:ro]（管理员配置）
   extra_disks  TEXT    NOT NULL DEFAULT '',            -- 附加数据盘 GB 列表（"20,50"）
+  snapshots    INTEGER NOT NULL DEFAULT 3,            -- 每实例快照数量上限，0 = 关闭（用户端不显示）
   images       TEXT    NOT NULL DEFAULT 'debian/12,debian/13,alpine/3.21,alpine/3.22',
   price_cents  INTEGER NOT NULL DEFAULT 0,           -- 0 = 不可用余额开通
   duration_days INTEGER NOT NULL DEFAULT 30,

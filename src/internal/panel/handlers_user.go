@@ -96,26 +96,61 @@ func (s *Server) handleInstancePage(w http.ResponseWriter, r *http.Request) {
 	p := s.newPage(r, inst.Name, "dashboard")
 	p.Data["Inst"] = inst
 	// Only the connection host is exposed, never the agent endpoint or secret.
+	// Prefer node Domain/DDNS over the host extracted from Endpoint.
 	if node != nil {
-		p.Data["SSHHost"] = hostOnly(node.Endpoint)
+		p.Data["SSHHost"] = nodePublicHost(node)
 	}
 	p.Data["Upgrades"] = s.upgradeCandidates(r.Context(), inst)
 	// Reinstall picks from the plan's allowed images; no plan → no reinstall.
+	// Snapshot limit comes from the plan (0 = feature off / hidden in UI).
 	if plan, err := s.db.PlanByID(r.Context(), inst.PlanID); err == nil {
 		p.Data["ReinstallImages"] = plan.ImageList()
+		p.Data["SnapshotLimit"] = plan.Snapshots
 	}
 	p.Data["Balance"] = ac.User.BalanceCents
 	p.Data["OldPrice"] = s.instancePlanPrice(r.Context(), inst)
-	switch {
-	case r.URL.Query().Get("ok") == "upgrade":
+	// Admin-only controls (ports / migrate / renew) need node pool bounds and peer nodes.
+	if ac.User.IsAdmin {
+		if node != nil {
+			p.Data["Node"] = node
+		}
+		if nodes, nerr := s.db.ListNodes(r.Context(), false); nerr == nil {
+			p.Data["Nodes"] = nodes
+		}
+		if inst.PortFrom > 0 && inst.PortTo >= inst.PortFrom {
+			p.Data["PortCount"] = inst.PortTo - inst.PortFrom + 1
+		}
+	}
+	switch r.URL.Query().Get("ok") {
+	case "upgrade":
 		p.Flash = "升级成功，新配置已生效。"
-	case r.URL.Query().Get("err") != "":
-		p.Error = map[string]string{
+	case "ip":
+		p.Flash = "IP 已修改并下发到节点。"
+	case "resize":
+		p.Flash = "规格已调整并下发到节点。"
+	case "ports":
+		p.Flash = "端口已修改并下发到节点。"
+	case "migrate":
+		p.Flash = "迁移已开始，请稍后刷新查看状态。"
+	case "extend":
+		p.Flash = "续期成功，到期时间已更新。"
+	case "traffic":
+		p.Flash = "流量已清零；若因超限停机已恢复为已停止，可手动启动。"
+	case "traffic_add":
+		p.Flash = "流量配额已增加；若已解除超限可手动启动实例。"
+	}
+	if e := r.URL.Query().Get("err"); e != "" {
+		// Prefer known upgrade codes; fall through to free-text admin errors.
+		if msg, ok := map[string]string{
 			"upgrade_state":        "实例当前状态不允许升级",
 			"upgrade_bad":          "所选套餐不满足升级条件（需同网络模式、规格不小于当前、价格更高）",
 			"upgrade_insufficient": "余额不足，请先充值",
 			"upgrade_fail":         "升级失败，请稍后再试或联系管理员",
-		}[r.URL.Query().Get("err")]
+		}[e]; ok {
+			p.Error = msg
+		} else {
+			p.Error = e
+		}
 	}
 	s.render(w, r, "instance.html", p)
 }
@@ -236,7 +271,7 @@ func (s *Server) handleRedeemPost(w http.ResponseWriter, r *http.Request) {
 	p := s.newPage(r, "开通成功", "dashboard")
 	p.Data["Inst"] = inst
 	p.Data["RootPassword"] = rootPW
-	p.Data["SSHHost"] = hostOnly(node.Endpoint)
+	p.Data["SSHHost"] = nodePublicHost(node)
 	s.render(w, r, "redeem_ok.html", p)
 }
 
@@ -626,6 +661,18 @@ func hostOnly(endpoint string) string {
 		h = h[:i]
 	}
 	return strings.Trim(h, "[]")
+}
+
+// nodePublicHost is the tenant-facing NAT host for SSH / VNC / port maps:
+// Domain/DDNS when set, otherwise the host portion of Endpoint.
+func nodePublicHost(n *store.Node) string {
+	if n == nil {
+		return ""
+	}
+	if d := strings.TrimSpace(n.Domain); d != "" {
+		return strings.TrimSuffix(d, ".")
+	}
+	return hostOnly(n.Endpoint)
 }
 
 // buildCreateReq assembles the agent CreateRequest for an instance on a
