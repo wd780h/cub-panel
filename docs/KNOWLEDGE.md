@@ -1,7 +1,8 @@
 # cub-panel 知识库
 
-> 整理自 Hermes Kanban 任务 `t_0b5e5a41` / `t_27089e4d`（检查项目 + 注册邮件验证实现）。  
-> 工作区：`/host/box/env`（源码与部署脚本一体）。
+> 供 Hermes / Grok Build / 运维 agent 续作使用的项目速查。  
+> 路径约定：宿主机上源码树为 **`/box/env`**；Grok Build 工作区通过 bind 看到的是 **`/host/box/env`**（内容相同）。  
+> 上游仓库：https://github.com/wd780h/cub-panel  
 
 ---
 
@@ -11,37 +12,48 @@
 
 | 组件 | 二进制 | 职责 |
 |------|--------|------|
-| 主控 | `cub-panel` | Web 前台、用户控制台、管理后台、充值、网页终端代理、计费 |
-| 被控 | `cub-agent` | 装在每台 Incus/LXD 宿主机，只连本机 unix socket，执行创建/网络/快照等 |
+| 主控 | `cub-panel` | Web 前台、用户控制台、管理后台、充值、网页终端代理、计费、邮件验证 |
+| 被控 | `cub-agent` | 装在每台 Incus/LXD 宿主机，只连本机 unix socket，执行创建/网络/快照/自升级等 |
 
 - 纯静态 Go 二进制（`CGO_ENABLED=0`），无 Node/Python 运行时依赖  
 - 支持 amd64 / arm64  
 - UI：中英文 + 明暗主题  
-- 上游：https://github.com/wd780h/cub-panel  
+- Go module：`cubpanel`，要求 **Go 1.25+**  
+- 主控↔被控：**HTTPS（自签 + 证书指纹钉扎）+ HMAC 共享密钥**
 
 ---
 
 ## 2. 目录结构
 
 ```
-/host/box/env/
-├── bin/                      # 预编译 / 本地构建产物
+/box/env/                    # 或 Grok 侧 /host/box/env
+├── bin/                     # 预编译 / 本地构建产物
 │   ├── cub-panel, cub-agent
-│   └── cub-*-arm64
-├── src/                      # Go 源码（module: cubpanel）
-│   ├── cmd/panel/main.go     # 主控入口
-│   ├── cmd/agent/main.go     # 被控入口
+│   ├── cub-*-arm64
+│   └── SHA256SUMS
+├── src/                     # Go 源码（module: cubpanel）
+│   ├── cmd/panel/main.go    # 主控入口
+│   ├── cmd/agent/main.go    # 被控入口
+│   ├── go.mod / go.sum
 │   └── internal/
-│       ├── panel/            # Web 应用（handlers / templates / static / mail）
-│       ├── agent/            # 被控 HTTP API
-│       ├── store/            # DB（sqlite/postgres/mysql）+ schema
-│       ├── lxd/              # Incus/LXD 客户端封装
-│       └── shared/           # 协议与版本
-├── data/                     # 运行时 SQLite 等（默认可写）
-├── deploy/                   # install/build/docker/systemd/openrc
+│       ├── panel/           # Web 应用（handlers / templates / static / mail）
+│       ├── agent/           # 被控 HTTP API（含 remote self-update）
+│       ├── store/           # DB（sqlite/postgres/mysql）+ schema
+│       ├── lxd/             # Incus/LXD 客户端封装
+│       └── shared/          # 协议、版本号（ldflags 注入）
+├── data/                    # 开发期 SQLite 等（默认可写）
+├── deploy/                  # 安装 / 构建 / 服务单元
+│   ├── build.sh             # 从源码编出 bin/*
+│   ├── install.sh           # 统一入口（panel | agent）
+│   ├── install-panel.sh
+│   ├── install-agent.sh
+│   ├── setup-lxd-node.sh    # 宿主机 Incus/网桥/存储池
+│   ├── openrc/              # Alpine OpenRC：cub-panel / cub-agent
+│   ├── systemd/             # Debian/Ubuntu unit
+│   └── docker/              # Dockerfile + docker-compose（host network）
 └── docs/
-    ├── GUIDE.md / GUIDE.en.md
-    └── KNOWLEDGE.md          # 本文件
+    ├── GUIDE.md / GUIDE.en.md   # 用户向完整指南
+    └── KNOWLEDGE.md             # 本文件（agent/运维速查）
 ```
 
 ### 主控关键文件
@@ -50,11 +62,14 @@
 |------|------|
 | `internal/panel/server.go` | 路由、页面 envelope、限流 |
 | `internal/panel/handlers_auth.go` | 登录 / 注册 / **邮箱验证** / 改密 |
-| `internal/panel/handlers_admin.go` | 节点、套餐、用户、**网站设置** |
+| `internal/panel/handlers_admin.go` | 节点、套餐、用户、网站设置、**远程升级 agent** |
 | `internal/panel/mail.go` | SMTP 发信（STARTTLS / TLS / 明文） |
+| `internal/panel/jobs.go` | 后台任务（含过期验证挑战清理） |
 | `internal/panel/templates/` | HTML 模板（embed） |
 | `internal/store/schema*.sql` | 三方言 schema |
 | `internal/store/email_verify.go` | 待验证注册挑战表 CRUD |
+| `internal/agent/update.go` | 被控自升级（拉 release、校验、替换二进制） |
+| `internal/shared/version.go` | `Version` 变量，构建时 `-ldflags` 注入 |
 
 ---
 
@@ -63,18 +78,20 @@
 1. **公开注册 / 登录**（可用 `CUB_PANEL_ALLOW_SIGNUP` 关闭注册）  
 2. **首个注册用户自动成为管理员**  
 3. **套餐 + 激活码** 开通实例；也可余额购买 / 升级  
-4. **节点管理**：对接多台 agent，NAT / 独立 IPv6 / 独立公网 IPv4、KVM  
+4. **节点管理**：对接多台 agent；NAT / 独立 IPv6 / 独立公网 IPv4、KVM  
 5. **实例生命周期**：创建、启停、重装、改密、快照、迁移、流量计量  
 6. **网页串口控制台**（WebSocket）  
 7. **充值**：易支付（支付宝/微信）、USDT 人工确认、服务端 API 入账  
 8. **审计日志**  
-9. **注册邮箱验证**（可选，见第 5 节）
+9. **注册邮箱验证**（可选，见第 5 节）  
+10. **面板远程升级被控**（管理后台触发 agent self-update）  
+11. **版本探测**：agent 过旧时面板探测会告警  
 
 ---
 
 ## 4. 配置
 
-### 环境变量 / 启动参数（主控）
+### 4.1 主控环境变量 / 启动参数
 
 | 变量 | 默认 | 含义 |
 |------|------|------|
@@ -87,9 +104,23 @@
 | `CUB_PANEL_TRUST_PROXY` | `false` | 信任 `X-Forwarded-For` |
 | `CUB_PANEL_ALLOW_SIGNUP` | `true` | 是否开放注册 |
 
-安装脚本通常写到 `/opt/cub-panel/cub-panel.env`。
+安装后通常写到 **`/opt/cub-panel/cub-panel.env`**，由 OpenRC/systemd 在启动时 `source` / `EnvironmentFile`。
 
-### 后台「网站设置」持久化项（`settings` 表）
+### 4.2 被控环境变量（摘要）
+
+| 变量 | 默认 | 含义 |
+|------|------|------|
+| `CUB_AGENT_LISTEN` | `0.0.0.0:8788` | 监听（建议内网/VPN） |
+| `CUB_AGENT_SECRET` | （安装生成） | 与面板节点配置一致的 HMAC 密钥 |
+| `CUB_AGENT_SOCKET` | `/var/lib/incus/unix.socket` | Incus/LXD unix socket |
+| `CUB_AGENT_POOL` | `cub`（新装）/ 现场可能为 `default` | 存储池名 |
+| `CUB_AGENT_IMAGE_SERVER` | images.linuxcontainers.org | simplestreams |
+| `CUB_AGENT_ISO_DIR` | `/var/lib/cub-panel/isos` 等 | ISO 目录 |
+| `CUB_AGENT_VERBOSE` | 空 | 非空则详细日志 |
+
+证书：`agent-cert.pem` / `agent-key.pem`（工作目录下，常为 `/opt/cub-panel/`），指纹需钉扎进面板节点配置。
+
+### 4.3 后台「网站设置」持久化项（`settings` 表）
 
 - 站点：`site_name`、`announcement`、`hide_repo_link`  
 - 支付：`pay_epay_*`、`pay_alipay`、`pay_wxpay`、`pay_usdt*`  
@@ -107,7 +138,7 @@
 
 ---
 
-## 5. 注册邮件验证实现
+## 5. 注册邮件验证
 
 ### 5.1 行为
 
@@ -167,63 +198,186 @@ email_verifications (
 | SMTPS | 465 | TLS/SSL |
 | 内网无 TLS 中继 | 25 | none（勿对公网） |
 
-### 5.5 编译与测试
+### 5.5 本地编译与单测
 
 ```sh
-export PATH="/usr/local/go/bin:$PATH"
-cd /host/box/env/src
+export PATH="/usr/local/go/bin:$PATH"   # 或本机 go 路径
+cd /host/box/env/src                    # 宿主机则为 /box/env/src
 go test ./internal/store/ ./internal/panel/ -count=1
-go build -o /host/box/env/bin/cub-panel ./cmd/panel/
-# 运行示例
-CUB_PANEL_DB=/tmp/panel-dev.db /host/box/env/bin/cub-panel -listen 127.0.0.1:8080
+go build -o ../bin/cub-panel ./cmd/panel/
+# 或一键：
+# VERSION=vX.Y.Z /host/box/env/deploy/build.sh
+CUB_PANEL_DB=/tmp/panel-dev.db ../bin/cub-panel -listen 127.0.0.1:8080
 ```
 
 ---
 
-## 6. 与 Hermes Kanban / multi-agent 协作
+## 6. 部署方式
 
-本环境中任务由 **Hermes Agent + Kanban** 分发，**Grok Build** 作为执行侧：
+### 6.1 一键脚本（官方推荐，无源码）
+
+主控：
+
+```sh
+curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- panel
+```
+
+被控宿主机（先 Incus 再 agent）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wd780h/cub-panel/main/deploy/setup-lxd-node.sh | sh
+curl -fsSL https://github.com/wd780h/cub-panel/releases/latest/download/install.sh | sh -s -- agent
+```
+
+脚本会：
+
+1. 按架构选取二进制（amd64 / arm64）  
+2. 安装到 **`PANEL_HOME` 默认 `/opt/cub-panel`**（`bin/` + `data/` + `*.env`）  
+3. 注册 **OpenRC**（Alpine）或 **systemd**（Debian/Ubuntu）服务  
+4. agent 安装结束打印：**地址 + 共享密钥 + 证书指纹** → 粘贴进面板「节点」
+
+### 6.2 从本仓库源码构建并安装
+
+```sh
+# 构建（静态链接，注入版本）
+cd /box/env          # 或 /host/box/env
+./deploy/build.sh
+# 交叉编译例：GOARCH=arm64 ./deploy/build.sh
+
+# 安装主控 / 被控（root）
+./deploy/install-panel.sh
+./deploy/install-agent.sh
+# 或：./deploy/install.sh panel|agent
+```
+
+`build.sh` 要点：
+
+- `CGO_ENABLED=0`  
+- `VERSION` 默认 `git describe --tags --always`，可 `VERSION=v0.1.x ./deploy/build.sh`  
+- ldflags：`-X cubpanel/internal/shared.Version=$VERSION`  
+- 产出：`bin/cub-panel`、`bin/cub-agent`（跨架构带后缀）
+
+### 6.3 服务管理
+
+| 发行版 | 主控 | 被控 | 日志 |
+|--------|------|------|------|
+| Alpine OpenRC | `rc-service cub-panel start\|stop\|restart` | `rc-service cub-agent …` | `/var/log/cub-panel.log`、`/var/log/cub-agent.log` |
+| systemd | `systemctl start cub-panel` | `systemctl start cub-agent` | journalctl `-u cub-panel` |
+
+单元模板：
+
+- `deploy/openrc/cub-panel`、`deploy/openrc/cub-agent`  
+- `deploy/systemd/cub-panel.service`、`deploy/systemd/cub-agent.service`  
+
+OpenRC 启动前会 `source /opt/cub-panel/cub-panel.env`（或 agent 对应 env）。
+
+### 6.4 Docker
+
+```sh
+cd deploy/docker && docker compose up -d --build
+```
+
+- `network_mode: host`（方便直连各节点 agent `:8788`）  
+- 默认监听 `0.0.0.0:8080`，数据卷 `cub-data` → 容器内 `/data/panel.db`  
+- 详见 `deploy/docker/docker-compose.yml`
+
+### 6.5 手工热更新（本机已有安装）
+
+在不重跑 install 脚本时，常见步骤：
+
+```sh
+# 1) 编译
+./deploy/build.sh
+# 2) 备份并替换二进制
+cp /opt/cub-panel/bin/cub-panel /opt/cub-panel/bin/cub-panel.bak.$(date +%Y%m%d%H%M%S)
+install -m 0755 bin/cub-panel /opt/cub-panel/bin/cub-panel
+# 3) 重启服务
+rc-service cub-panel restart   # 或 systemctl restart cub-panel
+# 4) 确认监听与日志
+ss -lntp | grep 18091          # 以实际 CUB_PANEL_LISTEN 为准
+tail -f /var/log/cub-panel.log
+```
+
+被控亦可由面板 **远程升级**（`agent/update.go` + 管理后台节点操作），无需逐台 scp。
+
+### 6.6 反向代理与端口
+
+- 生产建议：TLS 终止反代 → 主控；并设 `CUB_PANEL_SECURE_COOKIES=1`、`CUB_PANEL_TRUST_PROXY=1`  
+- 主控默认可绑 `0.0.0.0:8080`；本机生产见第 7 节  
+- 被控默认 `:8788` HTTPS，仅应对可信网络开放  
+- 注意 **端口占用**：若 OpenRC 报 `crashed` 但端口仍在 LISTEN，可能是孤儿进程占端口，需查 `ss`/`fuser` 后再 `rc-service … start`
+
+---
+
+## 7. 本机（当前宿主机）运行布局
+
+> 供后续 agent 排查时少走弯路。路径均相对**宿主机根**；Grok Build 访问时加 `/host` 前缀。
+
+| 项 | 值 |
+|----|-----|
+| 源码树 | `/box/env`（Grok：`/host/box/env`） |
+| 安装根 | `/opt/cub-panel` |
+| 主控二进制 | `/opt/cub-panel/bin/cub-panel` |
+| 被控二进制 | `/opt/cub-panel/bin/cub-agent` |
+| 主控配置 | `/opt/cub-panel/cub-panel.env` |
+| 被控配置 | `/opt/cub-panel/cub-agent.env` |
+| SQLite | `/opt/cub-panel/data/panel.db` |
+| 主控监听（本机） | `127.0.0.1:18091`（反代/隧道前） |
+| 被控监听（本机） | `0.0.0.0:8788` |
+| 服务 | OpenRC：`cub-panel`、`cub-agent` |
+| 日志 | `/var/log/cub-panel.log`、`/var/log/cub-agent.log` |
+| Git remote | `https://github.com/wd780h/cub-panel.git` |
+
+说明：
+
+- 邮件验证版本已合入主线（commit 主题：`optional email verification on registration`）。  
+- 历史上出现过 **OpenRC 状态 crashed 但端口仍被占用**（旧进程未退 / 重复启动），以 `ss -lntp` + 日志为准，不要只看 `rc-status`。  
+- 备份树：`/box/env.bak.*` 可作对照，日常以 `/box/env` 为准。  
+- **勿把 `CUB_AGENT_SECRET`、SMTP 密码写进本知识库或提交 git。**
+
+---
+
+## 8. 与 Hermes Kanban / multi-agent 协作
 
 ```
 用户 (Telegram 群 / 其他渠道)
     → Hermes Gateway / Agent
     → Kanban 任务 (t_*) 指派 assignee=grok-build
-    → Grok Build 在 Workspace (/host/box/env) 读改代码、跑测试
-    → 完成后用 hermes send / bridge 回写 Telegram 群
-    → 可选：写入 docs/ 知识库供后续 agent 续作
+    → Grok Build 在 Workspace 读改代码、跑测试、部署
+    → 完成后回写任务结果 / 可选 Telegram
+    → 关键结论写入 docs/KNOWLEDGE.md 供续作
 ```
 
 ### 整合要点
 
-1. **工作区优先**：任务体写明 `Workspace: dir @ /host/box/env`，避免改错树。  
-2. **续任务模式**：`t_27089e4d` 续 `t_0b5e5a41`，在已有勘察结论上直接实现，不重复空分析。  
-3. **交付三件套**（本任务要求）：
-   - 可运行代码变更  
-   - 群内中文总结（变更点 + 使用说明）  
-   - 知识库 markdown（本文件）  
-4. **Telegram 回传**：群 ID `-1004314611502`；本机可用  
-   `hermes send --to telegram:-1004314611502 "..."`  
-   或 Grok Telegram bridge（`/opt/data/grok-telegram-bridge`，与 Hermes bot **不同 token**，避免 409）。  
-5. **多 agent 边界**：Grok Build 做具体实现；Hermes 负责任务编排与消息；不要假设 Grok Build 自带入站 Telegram。  
+1. **路径**：任务写 `/box/env` 时，在 Grok Build 容器内用 **`/host/box/env`**。  
+2. **工作区**：Kanban scratch 可能为空目录；真正代码在 `/host/box/env`，不要只在 scratch 里瞎找。  
+3. **交付习惯**：代码变更 + 中文摘要 + 必要时更新本文件。  
+4. **多 agent 边界**：Grok Build 做实现与部署；Hermes 负责任务编排与消息。  
 
-### 后续 agent 可接着做的方向
+### 后续可接着做的方向
 
 - 后台「发送测试邮件」按钮  
-- 验证码哈希存储（当前明文存 6 位码，TTL 短 + 限次，可接受；若合规要求可改 bcrypt）  
-- 登录二次验证 / 找回密码复用同一 SMTP 模块  
-- 把本知识库摘要同步进 `GUIDE.md` 用户文档章节  
+- 验证码哈希存储（当前明文 6 位码 + 短 TTL + 限次）  
+- 登录二次验证 / 找回密码复用 SMTP 模块  
+- 把邮件验证摘要同步进 `GUIDE.md` 用户文档  
+- 理顺本机 OpenRC 与孤儿进程，使 `rc-status` 与真实监听一致  
 
 ---
 
-## 7. 相关任务索引
+## 9. 相关任务索引
 
 | 任务 ID | 摘要 |
 |---------|------|
-| `t_0b5e5a41` | 检查 `/host/box/env` 项目结构 |
-| `t_27089e4d` | 续：邮件验证 + 群回 + 知识库（本交付） |
-| `t_bead38a3` | 运行环境信息 |
-| `t_114e316a` | `/host` 目录结构 |
+| `t_0b5e5a41` | 检查 `/box/env`（`/host/box/env`）项目结构 |
+| `t_27089e4d` | 注册邮件验证实现 + 知识库初版 |
+| `t_0bd8034c` | 构建并部署邮件验证版本到 `/opt/cub-panel` |
+| `t_eb389854` | 排查宿主机 cub-panel 服务崩溃 |
+| `t_70295742` | 检查 cloudflared 与端口冲突 |
+| `t_f495bd26` | 节点配置不符 / 被控升级 |
+| `t_4d9c3526` | 整理 `/box/env` 并提交 GitHub |
+| `t_1bf79039` | **恢复 / 补全 `docs/KNOWLEDGE.md`（本交付）** |
 
 ---
 
-*最后更新：2026-07-27（注册邮件验证落地）。*
+*最后更新：2026-07-27 — 恢复并扩充知识库（目录结构、邮件验证、部署方式、本机布局）。*
