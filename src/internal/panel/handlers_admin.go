@@ -434,6 +434,7 @@ func (s *Server) handleAdminPlanSave(w http.ResponseWriter, r *http.Request) {
 	pl.RateUpMbps = formInt(r, "rate_up_mbps", 0, 0, 100000)
 	pl.ExtraBridges = formStr(r, "extra_bridges", 200)
 	pl.V4Pool = formStr(r, "v4_pool", 200)
+	pl.V6Pool = formStr(r, "v6_pool", 400)
 	pl.KeepSourceIP = formBool(r, "keep_source_ip")
 	pl.Mounts = formStr(r, "mounts", 1000)
 	if _, err := shared.ParseMounts(pl.Mounts); err != nil {
@@ -456,6 +457,12 @@ func (s *Server) handleAdminPlanSave(w http.ResponseWriter, r *http.Request) {
 	if pl.V4Pool != "" {
 		if err := store.ValidateReserved(pl.V4Pool); err != nil {
 			s.adminPlansError(w, r, "内网 IP 段格式不正确："+err.Error())
+			return
+		}
+	}
+	if pl.V6Pool != "" {
+		if err := store.ValidateIPPool(pl.V6Pool, true); err != nil {
+			s.adminPlansError(w, r, "IPv6 地址池格式不正确："+err.Error())
 			return
 		}
 	}
@@ -869,8 +876,202 @@ func (s *Server) handleAdminInstances(w http.ResponseWriter, r *http.Request) {
 	p.Data["Instances"] = list
 	nodes, _ := s.db.ListNodes(r.Context(), false)
 	p.Data["Nodes"] = nodes
+	plans, _ := s.db.ListPlans(r.Context(), false)
+	p.Data["Plans"] = plans
+	users, _ := s.db.ListUsers(r.Context())
+	p.Data["Users"] = users
+	switch r.URL.Query().Get("ok") {
+	case "create":
+		p.Flash = "实例已开始开通，请稍后刷新查看状态。"
+	case "ip":
+		p.Flash = "IP 已修改并下发到节点。"
+	}
+	if e := r.URL.Query().Get("err"); e != "" {
+		p.Error = e
+	}
 	s.render(w, r, "admin_instances.html", p)
 }
+
+// adminInstErr redirects back to the instances page with a short error flash.
+func adminInstErr(w http.ResponseWriter, r *http.Request, msg string) {
+	msg = strings.ReplaceAll(msg, "\n", " ")
+	if len(msg) > 200 {
+		msg = msg[:200]
+	}
+	http.Redirect(w, r, "/admin/instances?err="+urlQueryEscape(msg), http.StatusSeeOther)
+}
+
+// handleAdminInstanceCreate opens an instance for a user with optional exact
+// IPv4/IPv6 addresses (admin "指定 IP 开通").
+func (s *Server) handleAdminInstanceCreate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	fail := func(msg string) { adminInstErr(w, r, msg) }
+	user, err := s.db.UserByID(ctx, formInt64(r, "user_id"))
+	if err != nil {
+		fail("用户不存在")
+		return
+	}
+	plan, err := s.db.PlanByID(ctx, formInt64(r, "plan_id"))
+	if err != nil || !plan.Enabled {
+		fail("套餐不存在或已下架")
+		return
+	}
+	image := formStr(r, "image", 64)
+	if image == "" {
+		imgs := plan.ImageList()
+		if len(imgs) == 0 {
+			fail("套餐未配置可用系统镜像")
+			return
+		}
+		image = imgs[0]
+	}
+	if !plan.AllowsImage(image) {
+		fail("所选系统不在该套餐允许范围内")
+		return
+	}
+	label := formStr(r, "label", 32)
+	preferNAT := strings.TrimSpace(formStr(r, "nat_addr", 64))
+	preferV4 := strings.TrimSpace(formStr(r, "v4_addr", 64))
+	preferV6 := strings.TrimSpace(formStr(r, "v6_addr", 64))
+
+	// Prefer an explicit node pin from the form, then the plan's pin, else auto.
+	nodeID := formInt64(r, "node_id")
+	node, err := s.pickNode(ctx, nodeID, plan)
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+
+	// Reject preferred addresses that the plan mode cannot use.
+	if preferNAT != "" && !needsNAT(plan.Mode) {
+		fail("该套餐网络模式不使用内网 IPv4")
+		return
+	}
+	if preferV4 != "" && !needsDV4(plan.Mode) {
+		fail("该套餐网络模式不使用独立公网 IPv4")
+		return
+	}
+	if preferV6 != "" && !needsV6(plan.Mode) {
+		fail("该套餐网络模式不使用独立 IPv6")
+		return
+	}
+
+	inst, _, err := s.launch(ctx, launchSpec{
+		user: user, plan: plan, node: node,
+		image: image, label: label,
+		preferNAT: preferNAT, preferV4: preferV4, preferV6: preferV6,
+	})
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	ac := userFrom(r)
+	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.admin_create",
+		fmt.Sprintf("%s for %s (%s) nat=%s v4=%s v6=%s",
+			inst.Name, user.Email, plan.Name, inst.NATAddr, inst.V4Addr, inst.V6Addr),
+		clientIP(r))
+	http.Redirect(w, r, "/admin/instances?ok=create", http.StatusSeeOther)
+}
+
+// handleAdminInstanceIP reassigns NAT / dedicated IPv4 / IPv6 on a live
+// instance and pushes the change to the agent (devices + in-guest net).
+func (s *Server) handleAdminInstanceIP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	fail := func(msg string) { adminInstErr(w, r, msg) }
+	inst, err := s.db.InstanceByID(ctx, formInt64(r, "id"))
+	if err != nil {
+		fail("实例不存在")
+		return
+	}
+	if inst.Status == "provisioning" || inst.Status == "migrating" {
+		fail("实例当前状态不允许修改 IP")
+		return
+	}
+	node, err := s.db.NodeByID(ctx, inst.NodeID)
+	if err != nil {
+		fail("节点不可用")
+		return
+	}
+
+	// Empty form field means "keep current"; a literal dash clears (not used —
+	// modes that have an address always keep one). Prefer re-pick or exact.
+	preferNAT := strings.TrimSpace(r.FormValue("nat_addr"))
+	preferV4 := strings.TrimSpace(r.FormValue("v4_addr"))
+	preferV6 := strings.TrimSpace(r.FormValue("v6_addr"))
+	if preferNAT == "" {
+		preferNAT = inst.NATAddr
+	}
+	if preferV4 == "" {
+		preferV4 = inst.V4Addr
+	}
+	if preferV6 == "" {
+		preferV6 = inst.V6Addr
+	}
+	// "auto" re-picks a free address from the pool.
+	if preferNAT == "auto" {
+		preferNAT = ""
+	}
+	if preferV4 == "auto" {
+		preferV4 = ""
+	}
+	if preferV6 == "auto" {
+		preferV6 = ""
+	}
+
+	var v4pool, v6pool string
+	keepSrc := true
+	if pl, perr := s.db.PlanByID(ctx, inst.PlanID); perr == nil {
+		v4pool = pl.V4Pool
+		v6pool = pl.V6Pool
+		keepSrc = pl.KeepSourceIP
+	}
+
+	var alloc *store.Allocation
+	err = store.AllocSection(func() error {
+		var aerr error
+		alloc, aerr = s.db.Allocate(ctx, node, store.AllocSpec{
+			WantNAT: needsNAT(inst.Mode), WantDV4: needsDV4(inst.Mode),
+			WantDV6: needsV6(inst.Mode),
+			// Ports stay put: only addresses are reassigned.
+			WantVNC: false, KeepPorts: true,
+			V4Pool: v4pool, V6Pool: v6pool,
+			PreferNAT: preferNAT, PreferV4: preferV4, PreferV6: preferV6,
+			ExceptInstance: inst.ID,
+		})
+		if aerr != nil {
+			return aerr
+		}
+		return s.db.UpdateInstanceAddrs(ctx, inst.ID, alloc.NATAddr, alloc.V4Addr, alloc.V6Addr)
+	})
+	if err != nil {
+		fail("分配失败：" + err.Error())
+		return
+	}
+
+	// Push devices + guest addresses to the node.
+	moved := *inst
+	moved.NATAddr = alloc.NATAddr
+	moved.V4Addr = alloc.V4Addr
+	moved.V6Addr = alloc.V6Addr
+	req := buildCreateReq(node, &moved, planFeatures(s, ctx, inst.PlanID), keepSrc, "")
+	dctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	if err := agentReconfigure(dctx, node, inst.Name, req); err != nil {
+		// Roll DB back to the previous addresses so the panel stays truthful.
+		_ = s.db.UpdateInstanceAddrs(ctx, inst.ID, inst.NATAddr, inst.V4Addr, inst.V6Addr)
+		fail("节点下发失败：" + err.Error())
+		return
+	}
+
+	ac := userFrom(r)
+	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "instance.ip",
+		fmt.Sprintf("%s: nat %s→%s v4 %s→%s v6 %s→%s",
+			inst.Name, inst.NATAddr, alloc.NATAddr, inst.V4Addr, alloc.V4Addr, inst.V6Addr, alloc.V6Addr),
+		clientIP(r))
+	http.Redirect(w, r, "/admin/instances?ok=ip", http.StatusSeeOther)
+}
+
+
 
 // handleAdminInstanceDelete destroys a container and its record.
 func (s *Server) handleAdminInstanceDelete(w http.ResponseWriter, r *http.Request) {

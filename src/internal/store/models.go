@@ -327,6 +327,7 @@ type Plan struct {
 	RateUpMbps   int    // egress bandwidth cap, 0 = unlimited
 	ExtraBridges string // extra NIC bridges, comma separated
 	V4Pool       string // restrict NAT internal IP to this range (within node subnet)
+	V6Pool       string // restrict dedicated IPv6 to this range (within node v6 cidr)
 	KeepSourceIP bool   // NAT forwards preserve the real client source IP (DNAT)
 	Mounts       string // host-dir binds "src:dst[:ro]" per line/comma (admin-only)
 	ExtraDisks   string // extra data volumes in GB, comma list ("20,50"), max 4
@@ -390,14 +391,14 @@ func (p *Plan) AllowsImage(img string) bool {
 }
 
 const planCols = `id, name, description, cpu, memory_mb, disk_gb, mode, instance_type, node_id, features,
-	traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, extra_disks, images,
+	traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, v6_pool, keep_source_ip, mounts, extra_disks, images,
 	price_cents, duration_days, enabled, sort_order, created_at`
 
 func scanPlan(s interface{ Scan(...any) error }) (*Plan, error) {
 	var p Plan
 	err := s.Scan(&p.ID, &p.Name, &p.Description, &p.CPU, &p.MemoryMB, &p.DiskGB,
 		&p.Mode, &p.InstanceType, &p.NodeID, &p.Features, &p.TrafficGB, &p.TrafficMode, &p.RateDownMbps, &p.RateUpMbps,
-		&p.ExtraBridges, &p.V4Pool, &p.KeepSourceIP, &p.Mounts, &p.ExtraDisks, &p.Images,
+		&p.ExtraBridges, &p.V4Pool, &p.V6Pool, &p.KeepSourceIP, &p.Mounts, &p.ExtraDisks, &p.Images,
 		&p.PriceCents, &p.DurationDays, &p.Enabled, &p.SortOrder, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -410,18 +411,18 @@ func (d *DB) SavePlan(ctx context.Context, p *Plan) (int64, error) {
 	if p.ID == 0 {
 		return d.insertID(ctx,
 			`INSERT INTO plans (name, description, cpu, memory_mb, disk_gb, mode, instance_type, node_id, features,
-			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, keep_source_ip, mounts, extra_disks, images,
-			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			   traffic_gb, traffic_mode, rate_down_mbps, rate_up_mbps, extra_bridges, v4_pool, v6_pool, keep_source_ip, mounts, extra_disks, images,
+			   price_cents, duration_days, enabled, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.NodeID, p.Features,
-			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
+			p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, p.V6Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
 			p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, now())
 	}
 	_, err := d.ExecContext(ctx,
 		`UPDATE plans SET name=?, description=?, cpu=?, memory_mb=?, disk_gb=?, mode=?, instance_type=?, node_id=?, features=?,
-		   traffic_gb=?, traffic_mode=?, rate_down_mbps=?, rate_up_mbps=?, extra_bridges=?, v4_pool=?, keep_source_ip=?,
+		   traffic_gb=?, traffic_mode=?, rate_down_mbps=?, rate_up_mbps=?, extra_bridges=?, v4_pool=?, v6_pool=?, keep_source_ip=?,
 		   mounts=?, extra_disks=?, images=?, price_cents=?, duration_days=?, enabled=?, sort_order=? WHERE id=?`,
 		p.Name, p.Description, p.CPU, p.MemoryMB, p.DiskGB, p.Mode, p.InstanceType, p.NodeID, p.Features,
-		p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
+		p.TrafficGB, p.TrafficMode, p.RateDownMbps, p.RateUpMbps, p.ExtraBridges, p.V4Pool, p.V6Pool, boolInt(p.KeepSourceIP), p.Mounts, p.ExtraDisks, p.Images,
 		p.PriceCents, p.DurationDays, boolInt(p.Enabled), p.SortOrder, p.ID)
 	return p.ID, err
 }
@@ -806,6 +807,15 @@ func (d *DB) RelocateInstance(ctx context.Context, id, nodeID int64, natAddr str
 	_, err := d.ExecContext(ctx,
 		`UPDATE instances SET node_id=?, nat_addr=?, ssh_port=?, port_from=?, port_to=?, v6_addr=?, v4_addr=?, vnc_port=?
 		 WHERE id=?`, nodeID, natAddr, sshPort, portFrom, portTo, v6Addr, v4Addr, vncPort, id)
+	return err
+}
+
+// UpdateInstanceAddrs rewrites the network addresses of an instance after an
+// admin IP reassignment. Ports are left alone.
+func (d *DB) UpdateInstanceAddrs(ctx context.Context, id int64, natAddr, v4Addr, v6Addr string) error {
+	_, err := d.ExecContext(ctx,
+		`UPDATE instances SET nat_addr=?, v4_addr=?, v6_addr=? WHERE id=?`,
+		natAddr, v4Addr, v6Addr, id)
 	return err
 }
 

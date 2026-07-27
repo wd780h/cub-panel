@@ -64,6 +64,47 @@ func TestAllocateV6Only(t *testing.T) {
 	if c.NATAddr != "10.180.0.150" {
 		t.Errorf("v4_pool ignored: got %s", c.NATAddr)
 	}
+
+	// A plan v6 pool restricts dedicated IPv6 to its range.
+	d, err := db.Allocate(ctx, node, AllocSpec{WantDV6: true, V6Pool: "2001:db8:1::100-2001:db8:1::1ff"})
+	if err != nil {
+		t.Fatalf("allocate v6 pooled: %v", err)
+	}
+	if d.V6Addr != "2001:db8:1::100" {
+		t.Errorf("v6_pool ignored: got %s", d.V6Addr)
+	}
+
+	// Exact preferred addresses are honoured when free.
+	e, err := db.Allocate(ctx, node, AllocSpec{
+		WantNAT: true, WantDV6: true,
+		PreferNAT: "10.180.0.42", PreferV6: "2001:db8:1::42",
+	})
+	if err != nil {
+		t.Fatalf("allocate preferred: %v", err)
+	}
+	if e.NATAddr != "10.180.0.42" || e.V6Addr != "2001:db8:1::42" {
+		t.Errorf("preferred ignored: nat=%s v6=%s", e.NATAddr, e.V6Addr)
+	}
+	// Claim the preferred NAT via an instance row, then re-prefer must fail.
+	uid, _ := db.CreateUser(ctx, "alloc@example.com", "x", false)
+	iid, err := db.CreateInstance(ctx, &Instance{
+		UserID: uid, NodeID: node.ID, Name: "cub-pref", Image: "debian/12", Family: "debian",
+		CPU: 1, MemoryMB: 256, DiskGB: 5, Mode: "nat", InstanceType: "container",
+		NATAddr: "10.180.0.42", SSHPort: 20001, Status: "running",
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	if _, err := db.Allocate(ctx, node, AllocSpec{WantNAT: true, PreferNAT: "10.180.0.42"}); err == nil {
+		t.Error("expected failure for already-used preferred NAT")
+	}
+	// ExceptInstance frees the current row so an admin can "reclaim" its own IP.
+	f, err := db.Allocate(ctx, node, AllocSpec{
+		WantNAT: true, PreferNAT: "10.180.0.42", ExceptInstance: iid,
+	})
+	if err != nil || f.NATAddr != "10.180.0.42" {
+		t.Fatalf("except instance: got %+v err %v", f, err)
+	}
 }
 
 func TestPlanRoundtrip(t *testing.T) {
@@ -73,7 +114,7 @@ func TestPlanRoundtrip(t *testing.T) {
 		Name: "p", CPU: 2, MemoryMB: 512, DiskGB: 10, Mode: "ipv4v6",
 		InstanceType: "vm", Features: "aes,nesting", TrafficGB: 100, TrafficMode: "up",
 		RateDownMbps: 100, RateUpMbps: 30, ExtraBridges: "br-a",
-		V4Pool: "10.0.0.10-10.0.0.20", KeepSourceIP: true,
+		V4Pool: "10.0.0.10-10.0.0.20", V6Pool: "2001:db8::10-2001:db8::ff", KeepSourceIP: true,
 		Images: "debian/12", PriceCents: 500, DurationDays: 30, Enabled: true,
 	}
 	id, err := db.SavePlan(ctx, in)
@@ -84,7 +125,8 @@ func TestPlanRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if got.Mode != "ipv4v6" || got.V4Pool != "10.0.0.10-10.0.0.20" || !got.KeepSourceIP ||
+	if got.Mode != "ipv4v6" || got.V4Pool != "10.0.0.10-10.0.0.20" ||
+		got.V6Pool != "2001:db8::10-2001:db8::ff" || !got.KeepSourceIP ||
 		got.RateDownMbps != 100 || got.ExtraBridges != "br-a" {
 		t.Errorf("roundtrip mismatch: %+v", got)
 	}

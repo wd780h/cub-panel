@@ -163,7 +163,9 @@ func (s *Server) handleImportStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleReconfigure applies a fresh device/config set to an instance (used
-// after import to move it onto the destination node's network) and starts it.
+// after import to move it onto the destination node's network, and after an
+// admin IP change) and starts it. Dedicated / unmanaged addresses are also
+// re-applied inside the guest so the change survives reboot.
 func (s *Server) handleReconfigure(w http.ResponseWriter, r *http.Request, body []byte) {
 	name, ok := instName(w, r)
 	if !ok {
@@ -188,6 +190,12 @@ func (s *Server) handleReconfigure(w http.ResponseWriter, r *http.Request, body 
 	if err := s.lxd.SetState(ctx, name, "start", false); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// Best-effort guest addressing: migration / IP-change need the new
+	// dedicated IPs (and unmanaged NAT) applied inside the guest. Failure is
+	// non-fatal for pure managed-NAT cases where LXD pins the lease itself.
+	if err := s.applyGuestNet(ctx, &req); err != nil {
+		s.log("reconfigure %s guest net: %v", name, err)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reconfigured"})
 }

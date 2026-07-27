@@ -43,17 +43,35 @@ type AllocSpec struct {
 	WantDV6 bool   // dedicated public IPv6 from the node's v6 pool
 	WantVNC bool   // one extra host port for a VM VNC display
 	V4Pool  string // restrict the NAT internal address to this range (within the subnet)
+	V6Pool  string // restrict dedicated IPv6 to this range (within the node v6 cidr)
+
+	// Prefer* pin exact addresses when non-empty. The address must be free,
+	// inside the node pool (and plan pool, if set), and not node-reserved.
+	// Empty strings fall back to auto-pick.
+	PreferNAT string
+	PreferV4  string
+	PreferV6  string
+
+	// ExceptInstance, when > 0, treats that instance's current addresses and
+	// ports as free — used when reassigning IPs on an existing instance.
+	ExceptInstance int64
+
+	// KeepPorts skips SSH/port-block allocation when WantNAT is set. Used by
+	// admin IP reassignment so only addresses change.
+	KeepPorts bool
 }
 
 // Allocate reserves the network resources named by spec. It fails rather than
 // overcommit. Call inside AllocSection together with the write that persists
 // the claim — the pick is not durable until the instance row exists.
 func (d *DB) Allocate(ctx context.Context, node *Node, spec AllocSpec) (*Allocation, error) {
-	used, err := d.nodeUsage(ctx, node.ID)
+	used, err := d.nodeUsageExcept(ctx, node.ID, spec.ExceptInstance)
 	if err != nil {
 		return nil, err
 	}
-	if used.count >= node.MaxInstances {
+	// Capacity only applies when claiming a new slot. IP reassignment
+	// (ExceptInstance set) keeps the existing row, so skip the check.
+	if spec.ExceptInstance == 0 && used.count >= node.MaxInstances {
 		return nil, errors.New("node is at capacity")
 	}
 
@@ -61,13 +79,13 @@ func (d *DB) Allocate(ctx context.Context, node *Node, spec AllocSpec) (*Allocat
 
 	if spec.WantNAT {
 		// Node-reserved ranges + (optional) plan pool restriction.
-		reserved, err := parseReserved(node.NATReserved)
+		reserved, err := parseIPPool(node.NATReserved, false)
 		if err != nil {
 			return nil, fmt.Errorf("node nat_reserved: %w", err)
 		}
 		var inPool func(string) bool
 		if spec.V4Pool != "" {
-			inPool, err = parseReserved(spec.V4Pool) // reuse the range parser
+			inPool, err = parseIPPool(spec.V4Pool, false)
 			if err != nil {
 				return nil, fmt.Errorf("plan v4_pool: %w", err)
 			}
@@ -81,11 +99,19 @@ func (d *DB) Allocate(ctx context.Context, node *Node, spec AllocSpec) (*Allocat
 			}
 			return false
 		}
-		if a.NATAddr, err = pickIPv4Func(node.NATSubnet, avoid); err != nil {
+		if spec.PreferNAT != "" {
+			addr, err := claimIPv4(node.NATSubnet, spec.PreferNAT, avoid)
+			if err != nil {
+				return nil, fmt.Errorf("指定内网 IPv4：%w", err)
+			}
+			a.NATAddr = addr
+		} else if a.NATAddr, err = pickIPv4Func(node.NATSubnet, avoid); err != nil {
 			return nil, err
 		}
-		if a.SSHPort, a.PortFrom, a.PortTo, err = pickPorts(node, used.ports); err != nil {
-			return nil, err
+		if !spec.KeepPorts {
+			if a.SSHPort, a.PortFrom, a.PortTo, err = pickPorts(node, used.ports); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if spec.WantDV4 {
@@ -93,7 +119,13 @@ func (d *DB) Allocate(ctx context.Context, node *Node, spec AllocSpec) (*Allocat
 			return nil, errors.New("node has no dedicated IPv4 pool configured")
 		}
 		avoid := func(s string) bool { return used.dv4[s] }
-		if a.V4Addr, err = pickIPv4Func(node.V4CIDR, avoid); err != nil {
+		if spec.PreferV4 != "" {
+			addr, err := claimIPv4(node.V4CIDR, spec.PreferV4, avoid)
+			if err != nil {
+				return nil, fmt.Errorf("指定公网 IPv4：%w", err)
+			}
+			a.V4Addr = addr
+		} else if a.V4Addr, err = pickIPv4Func(node.V4CIDR, avoid); err != nil {
 			return nil, fmt.Errorf("dedicated IPv4 pool exhausted: %w", err)
 		}
 	}
@@ -101,7 +133,29 @@ func (d *DB) Allocate(ctx context.Context, node *Node, spec AllocSpec) (*Allocat
 		if !node.V6Enabled || node.V6CIDR == "" {
 			return nil, errors.New("node has no IPv6 pool configured")
 		}
-		if a.V6Addr, err = pickIPv6(node.V6CIDR, used.v6); err != nil {
+		var inPool func(string) bool
+		if spec.V6Pool != "" {
+			inPool, err = parseIPPool(spec.V6Pool, true)
+			if err != nil {
+				return nil, fmt.Errorf("plan v6_pool: %w", err)
+			}
+		}
+		avoid := func(s string) bool {
+			if used.v6[canonV6(s)] {
+				return true
+			}
+			if inPool != nil && !inPool(s) {
+				return true
+			}
+			return false
+		}
+		if spec.PreferV6 != "" {
+			addr, err := claimIPv6(node.V6CIDR, spec.PreferV6, avoid)
+			if err != nil {
+				return nil, fmt.Errorf("指定 IPv6：%w", err)
+			}
+			a.V6Addr = addr
+		} else if a.V6Addr, err = pickIPv6Func(node.V6CIDR, avoid); err != nil {
 			return nil, err
 		}
 	}
@@ -119,18 +173,31 @@ func (d *DB) Allocate(ctx context.Context, node *Node, spec AllocSpec) (*Allocat
 	return a, nil
 }
 
-// parseReserved compiles the operator's excluded-address spec — a comma list
-// of single IPs and inclusive ranges ("10.0.0.1-10.0.0.50,10.0.0.99") — into
-// a membership test.
+// parseReserved compiles an IPv4 reserved/pool spec. Kept as a thin wrapper
+// around parseIPPool for call sites and tests that pre-date dual-stack pools.
 func parseReserved(spec string) (func(string) bool, error) {
+	return parseIPPool(spec, false)
+}
+
+// parseIPPool compiles a comma list of single IPs and inclusive ranges
+// ("10.0.0.1-10.0.0.50,10.0.0.99" or "2001:db8::10-2001:db8::ff") into a
+// membership test. wantV6 selects the address family.
+func parseIPPool(spec string, wantV6 bool) (func(string) bool, error) {
 	type span struct{ lo, hi netip.Addr }
 	var spans []span
 	for _, part := range splitTrim(spec, ",") {
 		lo, hi, ok := splitRange(part)
 		a1, err1 := netip.ParseAddr(lo)
 		a2, err2 := netip.ParseAddr(hi)
-		if !ok || err1 != nil || err2 != nil || !a1.Is4() || !a2.Is4() || a2.Less(a1) {
+		if !ok || err1 != nil || err2 != nil || a2.Less(a1) {
 			return nil, fmt.Errorf("bad entry %q (want IP or IP-IP)", part)
+		}
+		if wantV6 {
+			if !a1.Is6() || !a2.Is6() {
+				return nil, fmt.Errorf("bad entry %q (want IPv6)", part)
+			}
+		} else if !a1.Is4() || !a2.Is4() {
+			return nil, fmt.Errorf("bad entry %q (want IPv4)", part)
 		}
 		spans = append(spans, span{a1, a2})
 	}
@@ -167,9 +234,15 @@ func splitRange(s string) (string, string, bool) {
 	return s, s, s != ""
 }
 
-// ValidateReserved checks a reserved-range spec at save time.
+// ValidateReserved checks an IPv4 reserved/pool-range spec at save time.
 func ValidateReserved(spec string) error {
-	_, err := parseReserved(spec)
+	_, err := parseIPPool(spec, false)
+	return err
+}
+
+// ValidateIPPool checks a pool-range spec of the requested family at save time.
+func ValidateIPPool(spec string, wantV6 bool) error {
+	_, err := parseIPPool(spec, wantV6)
 	return err
 }
 
@@ -183,8 +256,14 @@ type usage struct {
 
 // nodeUsage reads back everything currently reserved on a node.
 func (d *DB) nodeUsage(ctx context.Context, nodeID int64) (*usage, error) {
+	return d.nodeUsageExcept(ctx, nodeID, 0)
+}
+
+// nodeUsageExcept is nodeUsage but omits one instance (so its addresses can be
+// reassigned to itself when an admin changes IPs).
+func (d *DB) nodeUsageExcept(ctx context.Context, nodeID, exceptID int64) (*usage, error) {
 	rows, err := d.QueryContext(ctx,
-		`SELECT nat_addr, v6_addr, v4_addr, ssh_port, port_from, port_to, vnc_port FROM instances WHERE node_id = ?`, nodeID)
+		`SELECT id, nat_addr, v6_addr, v4_addr, ssh_port, port_from, port_to, vnc_port FROM instances WHERE node_id = ?`, nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,10 +271,16 @@ func (d *DB) nodeUsage(ctx context.Context, nodeID int64) (*usage, error) {
 
 	u := &usage{v4: map[string]bool{}, dv4: map[string]bool{}, v6: map[string]bool{}, ports: map[int]bool{}}
 	for rows.Next() {
+		var id int64
 		var v4, v6, dv4 string
 		var ssh, from, to, vnc int
-		if err := rows.Scan(&v4, &v6, &dv4, &ssh, &from, &to, &vnc); err != nil {
+		if err := rows.Scan(&id, &v4, &v6, &dv4, &ssh, &from, &to, &vnc); err != nil {
 			return nil, err
+		}
+		if exceptID > 0 && id == exceptID {
+			// Still counts toward capacity (the row is not going away).
+			u.count++
+			continue
 		}
 		u.count++
 		if v4 != "" {
@@ -308,6 +393,10 @@ func pickPorts(node *Node, used map[int]bool) (ssh, from, to int, err error) {
 // pickIPv6 returns the lowest free address in the pool, skipping the first few
 // which conventionally belong to the gateway.
 func pickIPv6(cidr string, used map[string]bool) (string, error) {
+	return pickIPv6Func(cidr, func(s string) bool { return used[s] || used[canonV6(s)] })
+}
+
+func pickIPv6Func(cidr string, avoid func(string) bool) (string, error) {
 	pfx, err := netip.ParsePrefix(cidr)
 	if err != nil {
 		return "", fmt.Errorf("node v6_cidr %q is not a valid CIDR", cidr)
@@ -322,12 +411,77 @@ func pickIPv6(cidr string, used map[string]bool) (string, error) {
 	// Bound the scan: a /64 is effectively infinite, so cap the effort rather
 	// than spin. In practice free addresses cluster at the bottom of the pool.
 	for i := 0; i < 100000 && pfx.Contains(addr); i++ {
-		if s := addr.String(); !used[s] {
+		if s := addr.String(); !avoid(s) {
 			return s, nil
 		}
 		addr = addr.Next()
 	}
 	return "", errors.New("ipv6 pool exhausted")
+}
+
+// claimIPv4 validates a preferred IPv4 against the pool CIDR and avoid set.
+func claimIPv4(cidr, want string, avoid func(string) bool) (string, error) {
+	pfx, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return "", fmt.Errorf("pool %q is not a valid CIDR", cidr)
+	}
+	if !pfx.Addr().Is4() {
+		return "", errors.New("pool must be IPv4")
+	}
+	addr, err := netip.ParseAddr(strings.TrimSpace(want))
+	if err != nil || !addr.Is4() {
+		return "", fmt.Errorf("%q is not a valid IPv4 address", want)
+	}
+	s := addr.String()
+	if !pfx.Contains(addr) {
+		return "", fmt.Errorf("%s is outside pool %s", s, cidr)
+	}
+	if isV4Broadcast(pfx, addr) {
+		return "", fmt.Errorf("%s is the broadcast address", s)
+	}
+	// Same reserved low range as auto-pick: network + first 9 hosts.
+	net := pfx.Masked().Addr()
+	for i := 0; i < 10; i++ {
+		if addr == net {
+			return "", fmt.Errorf("%s is in the reserved low range", s)
+		}
+		net = net.Next()
+	}
+	if avoid != nil && avoid(s) {
+		return "", fmt.Errorf("%s is already in use or reserved", s)
+	}
+	return s, nil
+}
+
+// claimIPv6 validates a preferred IPv6 against the pool CIDR and avoid set.
+func claimIPv6(cidr, want string, avoid func(string) bool) (string, error) {
+	pfx, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return "", fmt.Errorf("pool %q is not a valid CIDR", cidr)
+	}
+	if !pfx.Addr().Is6() {
+		return "", errors.New("pool must be IPv6")
+	}
+	addr, err := netip.ParseAddr(strings.TrimSpace(want))
+	if err != nil || !addr.Is6() {
+		return "", fmt.Errorf("%q is not a valid IPv6 address", want)
+	}
+	s := addr.String()
+	if !pfx.Contains(addr) {
+		return "", fmt.Errorf("%s is outside pool %s", s, cidr)
+	}
+	// Same gateway skip as auto-pick: network + first 15 hosts.
+	net := pfx.Masked().Addr()
+	for i := 0; i < 16; i++ {
+		if addr == net {
+			return "", fmt.Errorf("%s is in the reserved gateway range", s)
+		}
+		net = net.Next()
+	}
+	if avoid != nil && avoid(s) {
+		return "", fmt.Errorf("%s is already in use or outside the plan pool", s)
+	}
+	return s, nil
 }
 
 // ValidateCIDR parses a CIDR and checks its family, so the admin form can

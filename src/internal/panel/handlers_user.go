@@ -301,6 +301,10 @@ type launchSpec struct {
 	// refundCents, when > 0, is returned to the user's balance if the
 	// node-side provisioning fails.
 	refundCents int64
+	// Optional exact addresses (admin "指定 IP 开通"). Empty = auto-pick.
+	preferNAT string
+	preferV4  string
+	preferV6  string
 }
 
 // needsV6/needsDV4/needsNAT classify a plan network mode.
@@ -319,11 +323,15 @@ func (s *Server) launch(ctx context.Context, sp launchSpec) (*store.Instance, st
 	rootPW := randomPassword(16)
 	err := store.AllocSection(func() error {
 		alloc, err := s.db.Allocate(ctx, sp.node, store.AllocSpec{
-			WantNAT: needsNAT(sp.plan.Mode),
-			WantDV4: needsDV4(sp.plan.Mode),
-			WantDV6: needsV6(sp.plan.Mode),
-			WantVNC: sp.plan.InstanceType == "vm",
-			V4Pool:  sp.plan.V4Pool,
+			WantNAT:   needsNAT(sp.plan.Mode),
+			WantDV4:   needsDV4(sp.plan.Mode),
+			WantDV6:   needsV6(sp.plan.Mode),
+			WantVNC:   sp.plan.InstanceType == "vm",
+			V4Pool:    sp.plan.V4Pool,
+			V6Pool:    sp.plan.V6Pool,
+			PreferNAT: sp.preferNAT,
+			PreferV4:  sp.preferV4,
+			PreferV6:  sp.preferV6,
 		})
 		if err != nil {
 			return fmt.Errorf("资源分配失败：%v", err)

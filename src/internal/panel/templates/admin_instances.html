@@ -10,6 +10,72 @@
   {{template "adminnav" .}}
   {{template "flash" .}}
 
+  <details class="panel">
+    <summary>指定 IP 开通</summary>
+    <div class="body">
+      <form method="post" action="/admin/instances/create">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <div class="form-grid">
+          <div class="field">
+            <label for="c-user">用户</label>
+            <select id="c-user" name="user_id" required>
+              <option value="">选择用户…</option>
+              {{range .Data.Users}}
+              <option value="{{.ID}}">{{.Email}}{{if .IsAdmin}}（管理员）{{end}}</option>
+              {{end}}
+            </select>
+          </div>
+          <div class="field">
+            <label for="c-plan">套餐</label>
+            <select id="c-plan" name="plan_id" required>
+              <option value="">选择套餐…</option>
+              {{range .Data.Plans}}{{if .Enabled}}
+              <option value="{{.ID}}">{{.Name}} · {{modeText .Mode}}</option>
+              {{end}}{{end}}
+            </select>
+          </div>
+          <div class="field">
+            <label for="c-node">节点（可选）</label>
+            <select id="c-node" name="node_id">
+              <option value="0">自动 / 跟随套餐</option>
+              {{range .Data.Nodes}}
+              <option value="{{.ID}}">{{.Name}}{{if not .Enabled}}（已停用）{{end}}</option>
+              {{end}}
+            </select>
+          </div>
+          <div class="field">
+            <label for="c-image">系统镜像（可选）</label>
+            <input id="c-image" type="text" name="image" maxlength="64" class="mono"
+                   placeholder="留空 = 套餐默认">
+          </div>
+          <div class="field">
+            <label for="c-label">备注名（可选）</label>
+            <input id="c-label" type="text" name="label" maxlength="32" placeholder="例如：客户专线">
+          </div>
+          <div class="field">
+            <label for="c-nat">内网 IPv4（可选）</label>
+            <input id="c-nat" type="text" name="nat_addr" maxlength="64" class="mono"
+                   placeholder="如 10.180.0.50；留空自动分配">
+          </div>
+          <div class="field">
+            <label for="c-v4">公网 IPv4（可选）</label>
+            <input id="c-v4" type="text" name="v4_addr" maxlength="64" class="mono"
+                   placeholder="独立公网 IPv4；留空自动分配">
+          </div>
+          <div class="field">
+            <label for="c-v6">IPv6（可选）</label>
+            <input id="c-v6" type="text" name="v6_addr" maxlength="64" class="mono"
+                   placeholder="如 2001:db8::42；留空自动分配">
+          </div>
+        </div>
+        <p class="hint">仅填写套餐网络模式实际使用的地址类型；地址须在节点池内且未被占用。管理员开通不扣余额、不消耗激活码。</p>
+        <div class="btn-row mt-1">
+          <button class="btn btn-primary" type="submit">开通实例</button>
+        </div>
+      </form>
+    </div>
+  </details>
+
   {{if .Data.Instances}}
   <div id="batchBar" class="card mb-2" hidden>
     <div class="btn-row" style="align-items:center">
@@ -44,9 +110,11 @@
           <td class="mono nowrap">{{.CPU}}C / {{.MemoryMB}}M / {{.DiskGB}}G
             <div class="dim" style="font-size:.78rem">{{if .TrafficLimitGB}}{{bytes .TrafficUsed}}/{{.TrafficLimitGB}}G · {{trafficModeText .TrafficMode}}{{else}}不限流量{{end}}</div></td>
           <td class="mono dim" style="font-size:.8rem">
-            {{if .SSHPort}}:{{.SSHPort}}{{end}}
+            {{if .NATAddr}}{{.NATAddr}}{{end}}
+            {{if .SSHPort}}{{if .NATAddr}} · {{end}}:{{.SSHPort}}{{end}}
             {{if .PortFrom}}<br>{{.PortFrom}}–{{.PortTo}}{{end}}
-            {{if .V6Addr}}<br>{{.V6Addr}}{{end}}
+            {{if .V4Addr}}<br>v4 {{.V4Addr}}{{end}}
+            {{if .V6Addr}}<br>v6 {{.V6Addr}}{{end}}
           </td>
           <td>
             <span class="badge {{statusClass .Status}}">{{statusText .Status}}</span>
@@ -71,6 +139,20 @@
               <input type="hidden" name="id" value="{{.ID}}">
               <input type="hidden" name="days" value="30">
               <button class="btn btn-sm" type="submit">+30 天</button>
+            </form>
+            <form method="post" action="/admin/instances/ip"
+                  data-confirm="修改 {{.Name}} 的 IP？会下发到节点并重写访客内地址。留空表示保持原值；填 auto 则自动重分配。">
+              <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              {{if .NATAddr}}<input type="text" name="nat_addr" value="{{.NATAddr}}" class="mono"
+                     style="width:110px;padding:6px 6px" aria-label="内网 IPv4" title="内网 IPv4（auto=重分配）">{{end}}
+              {{if .V4Addr}}<input type="text" name="v4_addr" value="{{.V4Addr}}" class="mono"
+                     style="width:110px;padding:6px 6px" aria-label="公网 IPv4" title="公网 IPv4（auto=重分配）">{{end}}
+              {{if .V6Addr}}<input type="text" name="v6_addr" value="{{.V6Addr}}" class="mono"
+                     style="width:150px;padding:6px 6px" aria-label="IPv6" title="IPv6（auto=重分配）">{{end}}
+              {{if or .NATAddr .V4Addr .V6Addr}}
+              <button class="btn btn-sm" type="submit">改 IP</button>
+              {{end}}
             </form>
             {{if .TrafficLimitGB}}
             <form method="post" action="/admin/instances/traffic-reset"

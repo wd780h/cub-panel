@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS plans (
   rate_up_mbps   BIGINT NOT NULL DEFAULT 0,
   extra_bridges  VARCHAR(512) NOT NULL DEFAULT '',
   v4_pool        VARCHAR(255) NOT NULL DEFAULT '',
+  v6_pool        VARCHAR(512) NOT NULL DEFAULT '',
   keep_source_ip BIGINT NOT NULL DEFAULT 1,
   mounts        VARCHAR(1024) NOT NULL DEFAULT '',
   extra_disks   VARCHAR(64) NOT NULL DEFAULT '',

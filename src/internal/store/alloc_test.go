@@ -181,6 +181,40 @@ func TestPickIPv6SkipsUsed(t *testing.T) {
 	}
 }
 
+func TestPickIPv6PoolRestriction(t *testing.T) {
+	inPool, err := parseIPPool("2001:db8::100-2001:db8::1ff", true)
+	if err != nil {
+		t.Fatalf("parseIPPool: %v", err)
+	}
+	got, err := pickIPv6Func("2001:db8::/64", func(s string) bool { return !inPool(s) })
+	if err != nil {
+		t.Fatalf("pickIPv6Func: %v", err)
+	}
+	if want := "2001:db8::100"; got != want {
+		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func TestClaimIPv4AndIPv6(t *testing.T) {
+	got, err := claimIPv4("10.180.0.0/24", "10.180.0.50", nil)
+	if err != nil || got != "10.180.0.50" {
+		t.Fatalf("claimIPv4: got %s err %v", got, err)
+	}
+	if _, err := claimIPv4("10.180.0.0/24", "10.180.0.5", nil); err == nil {
+		t.Error("expected reserved-range rejection")
+	}
+	if _, err := claimIPv4("10.180.0.0/24", "10.180.1.50", nil); err == nil {
+		t.Error("expected outside-pool rejection")
+	}
+	got6, err := claimIPv6("2001:db8::/64", "2001:db8::42", nil)
+	if err != nil || got6 != "2001:db8::42" {
+		t.Fatalf("claimIPv6: got %s err %v", got6, err)
+	}
+	if _, err := claimIPv6("2001:db8::/64", "2001:db8::5", nil); err == nil {
+		t.Error("expected gateway-range rejection")
+	}
+}
+
 func TestPickIPv6RejectsIPv4Prefix(t *testing.T) {
 	if _, err := pickIPv6("10.0.0.0/24", nil); err == nil {
 		t.Error("expected an error for an IPv4 prefix")

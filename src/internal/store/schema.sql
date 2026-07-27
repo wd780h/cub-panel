@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS plans (
   rate_up_mbps   INTEGER NOT NULL DEFAULT 0,          -- 上行带宽 Mbps，0 = 不限
   extra_bridges  TEXT    NOT NULL DEFAULT '',          -- 附加网卡网桥，逗号分隔
   v4_pool        TEXT    NOT NULL DEFAULT '',          -- 内网 IP 段限制（须在节点网段内），如 10.180.0.100-10.180.0.200
+  v6_pool        TEXT    NOT NULL DEFAULT '',          -- IPv6 地址池限制（须在节点 v6 网段内），如 2001:db8::100-2001:db8::1ff
   keep_source_ip INTEGER NOT NULL DEFAULT 1,           -- NAT 端口转发是否保留真实源 IP（DNAT）
   mounts       TEXT    NOT NULL DEFAULT '',            -- 宿主机目录挂载 src:dst[:ro]（管理员配置）
   extra_disks  TEXT    NOT NULL DEFAULT '',            -- 附加数据盘 GB 列表（"20,50"）

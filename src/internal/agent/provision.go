@@ -468,15 +468,11 @@ func (s *Server) waitNetwork(ctx context.Context, name string, timeout time.Dura
 	return fmt.Errorf("timed out waiting for eth0")
 }
 
-// provisionGuest sets the root password, installs sshd and pins the static
-// IPv6 address. Every dynamic value travels as an environment variable, never
-// interpolated into the script text, so a hostile password or address cannot
-// break out into shell syntax.
-func (s *Server) provisionGuest(ctx context.Context, req *shared.CreateRequest) error {
+// guestNetEnv builds the environment variables used by the in-guest network
+// apply script (first boot and later reconfigure / IP change).
+func guestNetEnv(req *shared.CreateRequest) map[string]string {
 	env := map[string]string{
-		"ICP_PW":          req.RootPassword,
-		"PATH":            "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"DEBIAN_FRONTEND": "noninteractive",
+		"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 	}
 	plan := planNICs(req.Mode)
 	// Internal NAT static — only for foreign bridges that can't hand out the
@@ -510,6 +506,45 @@ func (s *Server) provisionGuest(ctx context.Context, req *shared.CreateRequest) 
 	if req.DNS != "" {
 		env["ICP_DNS"] = strings.ReplaceAll(req.DNS, ",", " ")
 	}
+	return env
+}
+
+// applyGuestNet re-applies static addressing inside a running guest. Used by
+// reconfigure after migration or admin IP change. Flushes prior global
+// addresses on the dedicated NICs so a changed IP does not leave the old one
+// behind, then rewrites /etc/cub-panel-net.env for reboot persistence.
+func (s *Server) applyGuestNet(ctx context.Context, req *shared.CreateRequest) error {
+	env := guestNetEnv(req)
+	// Nothing to do when every address is managed outside the guest.
+	if env["ICP_V4"] == "" && env["ICP_PUB4"] == "" && env["ICP_V6"] == "" && env["ICP_DNS"] == "" {
+		return nil
+	}
+	if isVM(req) {
+		deadline := time.Now().Add(90 * time.Second)
+		for {
+			if err := s.lxd.ExecOnce(ctx, req.Name, []string{"/bin/sh", "-c", "true"}, nil); err == nil {
+				break
+			} else if time.Now().After(deadline) {
+				return fmt.Errorf("vm guest agent did not come up: %w", err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(3 * time.Second):
+			}
+		}
+	}
+	return s.lxd.ExecScript(ctx, req.Name, scriptGuestNetReapply, env)
+}
+
+// provisionGuest sets the root password, installs sshd and pins the static
+// IPv6 address. Every dynamic value travels as an environment variable, never
+// interpolated into the script text, so a hostile password or address cannot
+// break out into shell syntax.
+func (s *Server) provisionGuest(ctx context.Context, req *shared.CreateRequest) error {
+	env := guestNetEnv(req)
+	env["ICP_PW"] = req.RootPassword
+	env["DEBIAN_FRONTEND"] = "noninteractive"
 
 	script := scriptDebian
 	if osFamilyFor(req.Image, req.Family) == shared.OSAlpine {
@@ -550,6 +585,24 @@ func osFamilyFor(image string, stated shared.OSFamily) shared.OSFamily {
 // The two provisioning recipes. Both are POSIX sh and read their inputs from
 // the environment. IPv6 is applied immediately and persisted through the
 // distro's own boot mechanism so it survives a reboot.
+
+// scriptGuestNetReapply is used after an admin IP change / migration
+// reconfigure. It flushes previous global addresses on the target NICs so the
+// old IP does not linger, then rewrites the persistent net env + apply script.
+const scriptGuestNetReapply = `set +e
+flush_dev() {
+  D="$1"
+  [ -n "$D" ] || return 0
+  ip link set "$D" up 2>/dev/null
+  # Drop previously configured global unicast addresses only (keep link-local).
+  ip -4 addr flush dev "$D" scope global 2>/dev/null
+  ip -6 addr flush dev "$D" scope global 2>/dev/null
+  return 0
+}
+[ -n "$ICP_V4DEV" ] && flush_dev "$ICP_V4DEV"
+[ -n "$ICP_PUB4DEV" ] && flush_dev "$ICP_PUB4DEV"
+[ -n "$ICP_V6DEV" ] && flush_dev "$ICP_V6DEV"
+` + scriptCommonNetApply
 
 // scriptCommonNetApply applies whichever static addresses were handed in and,
 // when any exist, persists them through /etc/cub-panel-net.env plus a small

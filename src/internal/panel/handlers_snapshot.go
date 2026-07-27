@@ -179,10 +179,11 @@ func (s *Server) runMigration(inst *store.Instance, src, dst *store.Node) {
 	}
 
 	// 1. Reserve the destination's network before touching the source.
-	var v4pool string
+	var v4pool, v6pool string
 	keepSrc := true
 	if pl, perr := s.db.PlanByID(ctx, inst.PlanID); perr == nil {
 		v4pool = pl.V4Pool
+		v6pool = pl.V6Pool
 		keepSrc = pl.KeepSourceIP
 	}
 	// Known gap: this claim only becomes durable when step 4 updates the
@@ -194,7 +195,8 @@ func (s *Server) runMigration(inst *store.Instance, src, dst *store.Node) {
 		var aerr error
 		alloc, aerr = s.db.Allocate(ctx, dst, store.AllocSpec{
 			WantNAT: needsNAT(inst.Mode), WantDV4: needsDV4(inst.Mode),
-			WantDV6: needsV6(inst.Mode), WantVNC: inst.InstanceType == "vm", V4Pool: v4pool,
+			WantDV6: needsV6(inst.Mode), WantVNC: inst.InstanceType == "vm",
+			V4Pool: v4pool, V6Pool: v6pool,
 		})
 		return aerr
 	})

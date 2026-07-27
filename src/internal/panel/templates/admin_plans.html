@@ -144,6 +144,13 @@
             <p class="hint">NAT 内网 IP 只从此范围分配（须在节点 NAT 网段以内），逗号分隔多段。留空 = 整个网段。</p>
           </div>
           <div class="field span2">
+            <label for="p-v6pool">IPv6 地址池</label>
+            <input id="p-v6pool" type="text" name="v6_pool" maxlength="400" class="mono"
+                   placeholder="2001:db8::100-2001:db8::1ff">
+            <p class="hint">独立 IPv6 只从此范围分配（须在节点 IPv6 网段以内），逗号分隔多段。留空 = 整个节点 IPv6 池。
+              用于把不同套餐切分到不同的 IPv6 子段。</p>
+          </div>
+          <div class="field span2">
             <label class="check">
               <input type="checkbox" name="keep_source_ip" value="1" checked>
               <span>NAT 端口转发显示真实源 IP（DNAT）</span>
@@ -219,6 +226,7 @@
             data-f-mounts="{{.Mounts}}"
             data-f-extra_disks="{{.ExtraDisks}}"
             data-f-v4_pool="{{.V4Pool}}"
+            data-f-v6_pool="{{.V6Pool}}"
             data-f-keep_source_ip="{{if .KeepSourceIP}}1{{else}}0{{end}}"
             data-f-images="{{.Images}}"
             data-f-price="{{if .PriceCents}}{{money .PriceCents}}{{end}}"
