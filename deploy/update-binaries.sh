@@ -74,8 +74,19 @@ case "$PANEL_HOME" in
 	;;
 esac
 case "$PANEL_HOME" in
-*/box/env|*/box/env/)
+*/box/env|*/box/env/|*/box/env/*)
 	die "PANEL_HOME=$PANEL_HOME looks like the compile workspace. Deploy only to /opt/cub-panel."
+	;;
+*/usr/local|*/usr/local/*|/usr/local|/usr/local/*)
+	die "PANEL_HOME=$PANEL_HOME forbidden. Deploy only to /opt/cub-panel (not /usr/local)."
+	;;
+esac
+# Canonical host path is /opt/cub-panel; agent containers may see /host/opt/cub-panel.
+case "$PANEL_HOME" in
+/opt/cub-panel|/opt/cub-panel/|/host/opt/cub-panel|/host/opt/cub-panel/)
+	;;
+*)
+	die "PANEL_HOME=$PANEL_HOME rejected. Only /opt/cub-panel (or /host/opt/cub-panel) is allowed."
 	;;
 esac
 
@@ -139,8 +150,16 @@ if [ -d "$PANEL_HOME" ]; then
 # Compile workspace: $SRC_DIR
 # Runtime home:      $PANEL_HOME
 # Updated:           $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Forbidden:         /usr/local/bin, /box/env as deploy targets
 # See:               $SRC_DIR/docs/OPS-PATHS.md
+# Enforce:           $SRC_DIR/deploy/enforce-paths.sh
 EOF
+fi
+
+# Strip any accidental host copies outside PANEL_HOME (never /box/env build cache).
+if [ -x "$SCRIPT_DIR/enforce-paths.sh" ]; then
+	say "enforcing sole deploy path (/opt/cub-panel)"
+	sh "$SCRIPT_DIR/enforce-paths.sh" --clean || warn "enforce-paths reported issues (binaries already installed to $PANEL_HOME)"
 fi
 
 host_rc() {

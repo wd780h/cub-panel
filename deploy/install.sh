@@ -26,6 +26,17 @@ case "$ROLE" in
 esac
 [ "$(id -u)" = "0" ] || die "please run as root"
 
+# Hard rule: production deploy root is ONLY /opt/cub-panel (see docs/OPS-PATHS.md).
+case "$PANEL_HOME" in
+/opt/cub-panel|/opt/cub-panel/|/host/opt/cub-panel|/host/opt/cub-panel/) ;;
+*) die "PANEL_HOME=$PANEL_HOME rejected. Install only to /opt/cub-panel (not /box/env or /usr/local)." ;;
+esac
+case "$PANEL_HOME" in
+*/box/env|*/box/env/*|*/usr/local|*/usr/local/*)
+	die "PANEL_HOME=$PANEL_HOME forbidden as deploy target."
+	;;
+esac
+
 # ask_db prompts for the panel's database backend. The installer NEVER installs
 # a database server — it only wires the panel to connect. SQLite is the default
 # and needs nothing; PostgreSQL/MySQL must already exist and you supply a DSN.

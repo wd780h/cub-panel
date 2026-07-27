@@ -13,6 +13,17 @@ die()  { printf '\033[31mxx\033[0m %s\n' "$*" >&2; exit 1; }
 
 [ "$(id -u)" = "0" ] || die "please run as root"
 
+# Hard rule: production deploy root is ONLY /opt/cub-panel (see docs/OPS-PATHS.md).
+case "$PANEL_HOME" in
+/opt/cub-panel|/opt/cub-panel/|/host/opt/cub-panel|/host/opt/cub-panel/) ;;
+*) die "PANEL_HOME=$PANEL_HOME rejected. Install only to /opt/cub-panel (not /box/env or /usr/local)." ;;
+esac
+case "$PANEL_HOME" in
+"$SRC_DIR"|"$SRC_DIR"/*|*/box/env|*/box/env/*|*/usr/local|*/usr/local/*)
+	die "PANEL_HOME=$PANEL_HOME forbidden as deploy target."
+	;;
+esac
+
 # Prompt for the database backend. The installer only connects — it never
 # installs a DB server. SQLite is the zero-dependency default.
 DB_DRIVER=sqlite

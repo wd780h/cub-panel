@@ -8,7 +8,8 @@
 > | **运行时部署** | `/opt/cub-panel` | `/host/opt/cub-panel` |
 >
 > 编译产物写在源码树 `bin/`，**最终二进制只安装到 `/opt/cub-panel`**。  
-> **禁止**把 `/box/env` 当运行目录，也禁止把二进制同时拷到多处当“正式部署”。
+> **禁止**把 `/box/env` 当运行目录，也禁止把二进制同时拷到多处当“正式部署”。  
+> **宿主机上唯一部署位置：`/opt/cub-panel`。禁止在 `/usr/local/bin`、`/box/env` 等路径安装或保留生产二进制。**
 
 ---
 
@@ -90,9 +91,22 @@ sh ./install-agent.sh
 | 禁止行为 | 原因 |
 |----------|------|
 | 把正式服务指到 `/box/env/bin/*` | 源码区与运行区混用，CIFS/备份会把运行态搞乱 |
+| 在宿主机 `/usr/local/bin`、`/usr/bin` 安装 `cub-panel` / `cub-agent` | 第二生产副本；OpenRC/systemd 不会用它们，极易“改了不生效” |
 | 同时更新 `/opt/cub-panel`、`/usr/local/bin`、`/box/env/bin` 等多处“生产副本” | 无法判断实际跑的是哪份 |
 | 在 `/opt/cub-panel` 里改业务源码再“就地编译”当主流程 | 源码不在这里；编译永远在 `/box/env` |
-| 用 Docker demo（`cub-panel-demo`，监听 18090）覆盖生产路径约定 | Demo 使用镜像内 `/usr/local/bin/cub-panel` + `/data`，与生产无关 |
+| 用 Docker demo（`cub-panel-demo`，监听 18090）覆盖生产路径约定 | Demo 使用**容器内** `/usr/local/bin/cub-panel` + `/data`，与宿主机生产无关 |
+
+### 强制校验 / 清理
+
+```sh
+# 校验并删除宿主机上的违规二进制（/usr/local/bin 等）
+sh /box/env/deploy/enforce-paths.sh
+
+# 仅检查，不删除
+sh /box/env/deploy/enforce-paths.sh --check
+```
+
+`update-binaries.sh` 在安装后会自动调用 `enforce-paths.sh --clean`。
 
 ---
 
@@ -122,9 +136,12 @@ ps aux | grep -E '[c]ub-panel|[c]ub-agent'
 ## 5. 给自动化 Agent 的硬规则
 
 1. **编译**只在 `/box/env`（容器内 `/host/box/env`）执行 `deploy/build.sh`。
-2. **部署**只写 `/opt/cub-panel/bin/*`（容器内 `/host/opt/cub-panel/bin/*`）。
+2. **部署**只写 `/opt/cub-panel/bin/*`（容器内 `/host/opt/cub-panel/bin/*`）。**绝不要**写到 `/usr/local/bin` 或 `/box/env` 当生产。
 3. 更新任务默认走 `deploy/update-binaries.sh`，不要手写多路径 `cp`。
-4. 不要“同步”生产二进制回 `/box/env` 以外的第二生产目录。
-5. 重启优先 OpenRC 官方服务名 `cub-panel` / `cub-agent`；容器内无 PID 命名空间时用 `chroot /host` 或 `--pid=host` 操作宿主机。
+4. 不要“同步”生产二进制到第二生产目录；更新后跑 `deploy/enforce-paths.sh`。
+5. 重启优先 OpenRC 官方服务名 `cub-panel` / `cub-agent`。
+6. **PID 命名空间**：普通 `chroot /host` 里 `kill` 宿主机 PID 往往无效。需要信号时用  
+   `docker run --rm --privileged --pid=host -v /:/host …` 或 `nsenter` 进宿主机 PID NS。
+7. 生产监听与 demo 区分：生产 panel `127.0.0.1:18091`、agent `:8788`；demo 容器 `cub-panel-demo` 用容器内 `/usr/local/bin` 听 `18090`，**不算**宿主机部署违规。
 
-详见脚本：`deploy/update-binaries.sh`、`deploy/build.sh`、`deploy/install-panel.sh`、`deploy/install-agent.sh`。
+详见脚本：`deploy/update-binaries.sh`、`deploy/enforce-paths.sh`、`deploy/build.sh`、`deploy/install-panel.sh`、`deploy/install-agent.sh`。
