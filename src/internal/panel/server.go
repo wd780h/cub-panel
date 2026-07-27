@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/nodes", s.requireAdmin(s.csrfGuard(s.handleAdminNodeSave)))
 	mux.HandleFunc("POST /admin/nodes/delete", s.requireAdmin(s.csrfGuard(s.handleAdminNodeDelete)))
 	mux.HandleFunc("POST /admin/nodes/probe", s.requireAdmin(s.csrfGuard(s.handleAdminNodeProbe)))
+	mux.HandleFunc("POST /admin/nodes/update-agent", s.requireAdmin(s.csrfGuard(s.handleAdminNodeUpdate)))
 	mux.HandleFunc("GET /admin/plans", s.requireAdmin(s.handleAdminPlans))
 	mux.HandleFunc("POST /admin/plans", s.requireAdmin(s.csrfGuard(s.handleAdminPlanSave)))
 	mux.HandleFunc("POST /admin/plans/delete", s.requireAdmin(s.csrfGuard(s.handleAdminPlanDelete)))

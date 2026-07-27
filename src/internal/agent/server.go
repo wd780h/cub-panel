@@ -90,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/isos/{name}", s.wrap(s.handleISODelete))
 	mux.HandleFunc("POST /v1/instances/{name}/iso", s.wrap(s.handleISOAttach))
 	mux.HandleFunc("DELETE /v1/instances/{name}/iso", s.wrap(s.handleISODetach))
+	mux.HandleFunc("POST /v1/update", s.wrap(s.handleUpdate))
 	mux.HandleFunc("GET /v1/storage", s.wrap(s.handleStorage))
 	mux.HandleFunc("POST /v1/storage/{pool}/resize", s.wrap(s.handleStorageResize))
 	mux.HandleFunc("GET /v1/images", s.wrap(s.handleImages))

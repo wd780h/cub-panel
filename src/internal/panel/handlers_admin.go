@@ -297,6 +297,34 @@ func subnetMismatch(bridge, panelSubnet, bridgeAddr string) string {
 		panelSubnet, bridge, real.String(), real.String(), bridge, gw)
 }
 
+// handleAdminNodeUpdate tells a node's agent to install a release build of
+// itself. The agent restarts a moment after replying, so a brief probe failure
+// right afterwards is expected.
+func (s *Server) handleAdminNodeUpdate(w http.ResponseWriter, r *http.Request) {
+	node, err := s.db.NodeByID(r.Context(), formInt64(r, "id"))
+	if err != nil {
+		s.jsonErr(w, http.StatusNotFound, "节点不存在")
+		return
+	}
+	// Pin the panel's own version so a fleet converges on one build.
+	want := shared.Version
+	if want == "dev" {
+		want = "latest"
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Minute)
+	defer cancel()
+
+	res, err := agentUpdate(ctx, node, want)
+	if err != nil {
+		s.jsonErr(w, http.StatusBadGateway, "升级失败："+err.Error())
+		return
+	}
+	ac := userFrom(r)
+	s.db.Audit(r.Context(), ac.User.ID, ac.User.Email, "node.agent.update",
+		fmt.Sprintf("%s %s -> %s", node.Name, res.From, res.To), clientIP(r))
+	s.jsonOK(w, res)
+}
+
 // ---------- plans ----------
 
 func (s *Server) handleAdminPlans(w http.ResponseWriter, r *http.Request) {

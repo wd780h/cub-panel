@@ -316,6 +316,20 @@ type StorageReport struct {
 	Pools []StoragePoolInfo `json:"pools"`
 }
 
+// AgentUpdateRequest asks an agent to replace its own binary with a release
+// build. Version is a tag ("v0.1.20") or "latest".
+type AgentUpdateRequest struct {
+	Repo    string `json:"repo,omitempty"` // owner/name; empty = agent default
+	Version string `json:"version,omitempty"`
+}
+
+// AgentUpdateResult reports what the agent replaced itself with. The restart
+// happens just after the reply is written.
+type AgentUpdateResult struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 // StorageResizeRequest grows a pool (shrinking is not supported by Incus).
 type StorageResizeRequest struct {
 	SizeGiB int `json:"size_gib"`

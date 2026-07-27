@@ -344,6 +344,21 @@
       .finally(function () { btn.classList.remove('is-busy'); });
   });
 
+  /* ---------- remote agent upgrade ---------- */
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-update-agent]');
+    if (!btn) return;
+    e.preventDefault();
+    if (!window.confirm('让该节点下载并安装与主控相同版本的被控？\n升级后 agent 会自动重启，实例不受影响。')) return;
+    btn.classList.add('is-busy');
+    toast('正在升级被控，请稍候…', 'ok');
+    post('/admin/nodes/update-agent', { id: btn.getAttribute('data-update-agent') })
+      .then(function (j) { toast('被控已升级：' + j.from + ' → ' + j.to, 'ok'); })
+      .catch(function (err) { toast(err.message, 'bad'); })
+      .finally(function () { btn.classList.remove('is-busy'); });
+  });
+
   /* ---------- edit-in-place forms (admin) ---------- */
 
   document.addEventListener('click', function (e) {

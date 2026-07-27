@@ -255,6 +255,8 @@
           </td>
           <td class="t-right t-actions">
             <button class="btn btn-sm" type="button" data-probe="{{.ID}}">检测</button>
+            <button class="btn btn-sm" type="button" data-update-agent="{{.ID}}"
+                    title="让该节点下载并安装与主控相同版本的被控">升级被控</button>
             <button class="btn btn-sm" type="button"
                     data-edit="node-{{.ID}}" data-target="nodeForm">编辑</button>
             <form method="post" action="/admin/nodes/delete"

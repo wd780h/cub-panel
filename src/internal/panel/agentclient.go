@@ -290,6 +290,15 @@ func signEmpty(req *http.Request, secret, method, path string) {
 	req.Header.Set(shared.HeaderSignature, shared.Sign(secret, method, path, ts, n, nil))
 }
 
+func agentUpdate(ctx context.Context, node *store.Node, version string) (*shared.AgentUpdateResult, error) {
+	var out shared.AgentUpdateResult
+	if err := callAgent(ctx, node, "POST", "/v1/update",
+		shared.AgentUpdateRequest{Version: version}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func agentStorage(ctx context.Context, node *store.Node) (*shared.StorageReport, error) {
 	var rep shared.StorageReport
 	if err := callAgent(ctx, node, "GET", "/v1/storage", nil, &rep); err != nil {

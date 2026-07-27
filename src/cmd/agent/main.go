@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"cubpanel/internal/agent"
+	"cubpanel/internal/shared"
 )
 
 func env(key, def string) string {
@@ -41,7 +43,14 @@ func main() {
 	flag.BoolVar(&tlsOn, "tls", env("CUB_AGENT_TLS", "1") != "0", "serve HTTPS with a self-signed certificate")
 	flag.StringVar(&tlsCert, "tls-cert", env("CUB_AGENT_TLS_CERT", "agent-cert.pem"), "TLS certificate path (created if missing)")
 	flag.StringVar(&tlsKey, "tls-key", env("CUB_AGENT_TLS_KEY", "agent-key.pem"), "TLS key path (created if missing)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	// The self-update path runs the freshly downloaded binary with -version to
+	// prove it executes on this machine before it replaces the running one.
+	if *showVersion {
+		fmt.Println(shared.Version)
+		return
+	}
 
 	cfg.Secret = os.Getenv("CUB_AGENT_SECRET")
 	if len(cfg.Secret) < 32 {
