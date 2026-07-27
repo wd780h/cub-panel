@@ -325,7 +325,7 @@ func (s *Server) handleResize(w http.ResponseWriter, r *http.Request, body []byt
 				"type": "disk",
 				"path": "/",
 				"pool": s.cfg.StoragePool,
-				"size": fmt.Sprintf("%dGB", req.DiskGB),
+				"size": fmt.Sprintf("%dGiB", req.DiskGB),
 			},
 		},
 	}

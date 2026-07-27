@@ -616,7 +616,7 @@ func (c *Client) VolumeCreate(ctx context.Context, pool, name string, sizeGB int
 	return c.sync(ctx, "POST", "/1.0/storage-pools/"+url.PathEscape(pool)+"/volumes/custom",
 		map[string]any{
 			"name":   name,
-			"config": map[string]string{"size": fmt.Sprintf("%dGB", sizeGB)},
+			"config": map[string]string{"size": fmt.Sprintf("%dGiB", sizeGB)},
 		}, nil)
 }
 

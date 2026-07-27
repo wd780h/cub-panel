@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,7 +51,7 @@ func (s *Server) buildDevices(req *shared.CreateRequest) map[string]lxd.Device {
 			"type": "disk",
 			"path": "/",
 			"pool": pool,
-			"size": fmt.Sprintf("%dGB", req.DiskGB),
+			"size": fmt.Sprintf("%dGiB", req.DiskGB),
 		},
 	}
 
@@ -111,6 +113,42 @@ func (s *Server) buildDevices(req *shared.CreateRequest) map[string]lxd.Device {
 	s.addFeatureDevices(dev, req)
 	s.addExtraBridges(dev, req)
 	return dev
+}
+
+// friendlyCreateErr turns the noisiest LXD create failures into something an
+// operator can act on. Anything unrecognised passes through untouched.
+func friendlyCreateErr(err error, req *shared.CreateRequest) error {
+	msg := err.Error()
+	switch {
+	// resize2fs refuses to shrink a filesystem below what the image contents
+	// need, which is what a too-small plan disk looks like from here.
+	case strings.Contains(msg, "resize2fs") && strings.Contains(msg, "smaller than minimum"):
+		need := ""
+		if m := regexp.MustCompile(`minimum \((\d+)\)`).FindStringSubmatch(msg); m != nil {
+			if blocks, e := strconv.ParseInt(m[1], 10, 64); e == nil {
+				// resize2fs reports 4 KiB blocks; round the requirement up.
+				need = fmt.Sprintf("，该镜像至少需要 %d GiB", (blocks*4096+(1<<30)-1)>>30)
+			}
+		}
+		return fmt.Errorf("套餐磁盘 %d GiB 装不下镜像 %s%s。请增大套餐磁盘，或改用体积更小的镜像（cloud 变体比普通镜像大）",
+			req.DiskGB, req.Image, need)
+	case strings.Contains(msg, "Storage pool not found"):
+		return fmt.Errorf("节点上没有存储池 %q，请核对面板里该节点的存储池名称", req.StoragePool)
+	}
+	return err
+}
+
+// friendlyGuestErr names the guest script's own exit codes (see scriptAlpine /
+// scriptDebian) so an operator sees the cause instead of a bare status number.
+func friendlyGuestErr(err error) error {
+	switch {
+	case strings.Contains(err.Error(), "status 90"):
+		return fmt.Errorf("实例已创建但装不上 SSH：容器访问不到软件源。" +
+			"请检查该节点的出网（NAT 伪装 / 转发规则）与 DNS；纯 IPv6 实例还需确认镜像源支持 IPv6")
+	case strings.Contains(err.Error(), "status 91"):
+		return fmt.Errorf("SSH 已安装但没能监听 22 端口，请查看该实例的系统日志")
+	}
+	return fmt.Errorf("guest setup: %w", err)
 }
 
 // isWildcardNATErr matches the Incus refusal of a wildcard listen in nat mode.
@@ -354,7 +392,7 @@ func (s *Server) Create(ctx context.Context, req *shared.CreateRequest) error {
 			if len(req.ExtraDisks) > 0 {
 				s.deleteExtraDisks(ctx, diskPool, req.Name)
 			}
-			return fmt.Errorf("create: %w", err)
+			return fmt.Errorf("create: %w", friendlyCreateErr(err, req))
 		}
 	}
 	if s.useAgentDNAT(req) {
@@ -386,7 +424,7 @@ func (s *Server) Create(ctx context.Context, req *shared.CreateRequest) error {
 		}
 	}
 	if err := s.provisionGuest(ctx, req); err != nil {
-		return fmt.Errorf("guest setup: %w", err)
+		return friendlyGuestErr(err)
 	}
 	return nil
 }
