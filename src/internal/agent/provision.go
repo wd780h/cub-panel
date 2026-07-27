@@ -633,10 +633,23 @@ if ! command -v sshd >/dev/null 2>&1; then
   echo "openssh-server install failed — the guest cannot reach the package mirrors (check the node's NAT egress/DNS)" >&2
   exit 90
 fi
-if [ -f /etc/ssh/sshd_config ]; then
-  sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-  sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-fi
+# Root password login must be stated explicitly: images that ship no
+# PermitRootLogin directive (Alpine) fall back to OpenSSH's built-in
+# "prohibit-password" and lock the tenant out. Strip every existing copy of
+# both keywords, then write ours — and when the config pulls in a drop-in
+# directory, put ours there too, since the first occurrence wins.
+cub_ssh_root_login() {
+  cfg=/etc/ssh/sshd_config
+  [ -f "$cfg" ] || return 0
+  sed -i -E "s/^[[:space:]]*#*[[:space:]]*(PermitRootLogin|PasswordAuthentication)[[:space:]].*//" "$cfg"
+  if grep -qE "^[[:space:]]*[Ii]nclude[[:space:]]+/etc/ssh/sshd_config\\.d" "$cfg"; then
+    mkdir -p /etc/ssh/sshd_config.d
+    printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/00-cub-panel.conf
+  fi
+  printf '\nPermitRootLogin yes\nPasswordAuthentication yes\n' >> "$cfg"
+  return 0
+}
+cub_ssh_root_login || true
 if [ -x /usr/local/sbin/cub-panel-net-apply ]; then
   cat > /etc/systemd/system/cub-panel-net.service <<'UNIT'
 [Unit]
@@ -691,10 +704,23 @@ if ! command -v sshd >/dev/null 2>&1; then
   echo "openssh install failed — the guest cannot reach the package mirrors (check the node's NAT egress/DNS)" >&2
   exit 90
 fi
-if [ -f /etc/ssh/sshd_config ]; then
-  sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-  sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-fi
+# Root password login must be stated explicitly: images that ship no
+# PermitRootLogin directive (Alpine) fall back to OpenSSH's built-in
+# "prohibit-password" and lock the tenant out. Strip every existing copy of
+# both keywords, then write ours — and when the config pulls in a drop-in
+# directory, put ours there too, since the first occurrence wins.
+cub_ssh_root_login() {
+  cfg=/etc/ssh/sshd_config
+  [ -f "$cfg" ] || return 0
+  sed -i -E "s/^[[:space:]]*#*[[:space:]]*(PermitRootLogin|PasswordAuthentication)[[:space:]].*//" "$cfg"
+  if grep -qE "^[[:space:]]*[Ii]nclude[[:space:]]+/etc/ssh/sshd_config\\.d" "$cfg"; then
+    mkdir -p /etc/ssh/sshd_config.d
+    printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/00-cub-panel.conf
+  fi
+  printf '\nPermitRootLogin yes\nPasswordAuthentication yes\n' >> "$cfg"
+  return 0
+}
+cub_ssh_root_login || true
 if [ -x /usr/local/sbin/cub-panel-net-apply ]; then
   mkdir -p /etc/local.d
   ln -sf /usr/local/sbin/cub-panel-net-apply /etc/local.d/cub-panel-net.start
