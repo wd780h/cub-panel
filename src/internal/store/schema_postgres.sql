@@ -187,3 +187,16 @@ CREATE TABLE IF NOT EXISTS recharge_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON recharge_orders(user_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON recharge_orders(status);
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id            BIGSERIAL PRIMARY KEY,
+  email         TEXT    NOT NULL,
+  password_hash TEXT    NOT NULL,
+  code          TEXT    NOT NULL,
+  token         TEXT    NOT NULL UNIQUE,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  expires_at    BIGINT  NOT NULL,
+  created_at    BIGINT  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_email_verif_email ON email_verifications(email);
+CREATE INDEX IF NOT EXISTS idx_email_verif_exp   ON email_verifications(expires_at);

@@ -1091,7 +1091,7 @@ func (s *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 
 // ---------- site settings ----------
 
-// handleAdminSettings renders the site + payment configuration form.
+// handleAdminSettings renders the site + payment + mail configuration form.
 func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	p := s.newPage(r, "网站设置", "settings")
@@ -1109,13 +1109,21 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 	p.Data["USDTAddr"] = get("pay_usdt_addr", "")
 	p.Data["USDTNet"] = get("pay_usdt_net", "TRC20")
 	p.Data["USDTRate"] = get("pay_usdt_rate", "")
+	// Registration email verification + SMTP
+	p.Data["MailVerify"] = get("mail_verify_enabled", "0") == "1"
+	p.Data["SMTPHost"] = get("smtp_host", "")
+	p.Data["SMTPPort"] = get("smtp_port", "587")
+	p.Data["SMTPUser"] = get("smtp_user", "")
+	p.Data["SMTPPass"] = get("smtp_pass", "")
+	p.Data["SMTPFrom"] = get("smtp_from", "")
+	p.Data["SMTPTLS"] = get("smtp_tls", "starttls")
 	if r.URL.Query().Get("ok") != "" {
 		p.Flash = "已保存"
 	}
 	s.render(w, r, "admin_settings.html", p)
 }
 
-// handleAdminSettingsSave persists the site + payment configuration.
+// handleAdminSettingsSave persists the site + payment + mail configuration.
 func (s *Server) handleAdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	set := func(k, v string) { _ = s.db.SetSetting(ctx, k, v) }
@@ -1137,8 +1145,31 @@ func (s *Server) handleAdminSettingsSave(w http.ResponseWriter, r *http.Request)
 		}
 		set("pay_usdt_rate", rate)
 	}
+
+	// Mail verification + SMTP
+	set("mail_verify_enabled", boolStr(formBool(r, "mail_verify_enabled")))
+	set("smtp_host", formStr(r, "smtp_host", 200))
+	port := formStr(r, "smtp_port", 8)
+	if port == "" {
+		port = "587"
+	}
+	set("smtp_port", port)
+	set("smtp_user", formStr(r, "smtp_user", 200))
+	// Empty password means "keep existing" so operators do not re-type secrets.
+	if pass := r.FormValue("smtp_pass"); strings.TrimSpace(pass) != "" {
+		set("smtp_pass", formStr(r, "smtp_pass", 200))
+	}
+	set("smtp_from", formStr(r, "smtp_from", 200))
+	tlsMode := strings.ToLower(formStr(r, "smtp_tls", 16))
+	switch tlsMode {
+	case "tls", "none", "starttls":
+	default:
+		tlsMode = "starttls"
+	}
+	set("smtp_tls", tlsMode)
+
 	ac := userFrom(r)
-	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "settings.save", "site & payment", clientIP(r))
+	s.db.Audit(ctx, ac.User.ID, ac.User.Email, "settings.save", "site & payment & mail", clientIP(r))
 	http.Redirect(w, r, "/admin/settings?ok=1", http.StatusSeeOther)
 }
 

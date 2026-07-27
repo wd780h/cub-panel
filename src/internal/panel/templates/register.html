@@ -4,7 +4,11 @@
 <main class="auth-wrap">
   <div class="card auth-card">
     <h1>创建账号</h1>
+    {{if .Data.MailVerify}}
+    <p class="dim">注册需验证邮箱：提交后将向邮箱发送 6 位验证码。</p>
+    {{else}}
     <p class="dim">注册后使用激活码即可开通实例。</p>
+    {{end}}
 
     {{template "flash" .}}
 
@@ -24,7 +28,9 @@
         <input id="password2" type="password" name="password2"
                autocomplete="new-password" required minlength="8" maxlength="128" placeholder="再次输入">
       </div>
-      <button class="btn btn-primary btn-block" type="submit">注册</button>
+      <button class="btn btn-primary btn-block" type="submit">
+        {{if .Data.MailVerify}}发送验证码{{else}}注册{{end}}
+      </button>
     </form>
 
     <p class="auth-alt">已有账号？<a href="/login">前往登录</a></p>

@@ -1,0 +1,39 @@
+{{define "register_verify.html"}}{{template "head" .}}
+{{template "nav" .}}
+
+<main class="auth-wrap">
+  <div class="card auth-card">
+    <h1>邮箱验证</h1>
+    {{if .Data.Email}}
+    <p class="dim">验证码已发送至 <span class="mono">{{.Data.Email}}</span>，请输入 6 位数字。</p>
+    {{else}}
+    <p class="dim">请输入邮件中的 6 位验证码完成注册。</p>
+    {{end}}
+
+    {{template "flash" .}}
+
+    {{if .Data.Token}}
+    <form method="post" action="/register/verify">
+      <input type="hidden" name="token" value="{{.Data.Token}}">
+      <div class="field">
+        <label for="code">验证码</label>
+        <input id="code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}"
+               autocomplete="one-time-code" required maxlength="6" minlength="6"
+               placeholder="6 位数字" class="mono" style="letter-spacing:.2em;font-size:1.2em">
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">验证并注册</button>
+    </form>
+
+    <form method="post" action="/register/verify/resend" style="margin-top:1em">
+      <input type="hidden" name="token" value="{{.Data.Token}}">
+      <button class="btn btn-block" type="submit">重新发送验证码</button>
+    </form>
+    {{else}}
+    <p class="auth-alt"><a href="/register">返回注册</a></p>
+    {{end}}
+
+    <p class="auth-alt">已有账号？<a href="/login">前往登录</a></p>
+  </div>
+</main>
+
+{{template "foot" .}}{{end}}

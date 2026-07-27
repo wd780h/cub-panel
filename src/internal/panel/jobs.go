@@ -15,6 +15,7 @@ func (s *Server) StartJobs(ctx context.Context) {
 	go s.loop(ctx, 5*time.Minute, s.reapExpired)
 	go s.loop(ctx, 5*time.Minute, s.meterTraffic)
 	go s.loop(ctx, time.Hour, s.purgeSessions)
+	go s.loop(ctx, time.Hour, s.purgeEmailVerifications)
 }
 
 // loop runs fn immediately and then on a fixed interval.
@@ -150,4 +151,9 @@ func counterDelta(cur, last int64) int64 {
 // purgeSessions drops expired session rows.
 func (s *Server) purgeSessions(ctx context.Context) {
 	_ = s.db.PurgeSessions(ctx)
+}
+
+// purgeEmailVerifications drops expired registration challenges.
+func (s *Server) purgeEmailVerifications(ctx context.Context) {
+	_ = s.db.PurgeExpiredEmailVerifications(ctx)
 }

@@ -81,6 +81,12 @@ var enDict = map[string]string{
 	"邮箱": "Email", "密码": "Password", "确认密码": "Confirm password",
 	"记住我": "Remember me", "还没有账号？": "No account yet?",
 	"已有账号？": "Already registered?", "创建账号": "Create account",
+	"邮箱验证": "Email verification", "验证码": "Verification code",
+	"发送验证码": "Send code", "验证并注册": "Verify & sign up",
+	"重新发送验证码": "Resend code",
+	"注册需验证邮箱：提交后将向邮箱发送 6 位验证码。": "Email verification is required: a 6-digit code will be sent after submit.",
+	"验证码已发送至": "Code sent to", "请输入邮件中的 6 位验证码完成注册。": "Enter the 6-digit code from the email to finish sign-up.",
+	"请输入 6 位数字": "6-digit code",
 
 	// recharge
 	"充值金额（元）": "Amount (CNY)", "支付方式": "Payment method", "去支付": "Pay",

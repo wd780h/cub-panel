@@ -1,11 +1,21 @@
 package panel
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"errors"
+	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
+	"time"
 
 	"cubpanel/internal/store"
+)
+
+const (
+	verifyCodeTTL     = 15 * time.Minute
+	verifyMaxAttempts = 8
 )
 
 // handleHome renders the public storefront.
@@ -107,10 +117,13 @@ func (s *Server) handleRegisterPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/app", http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, "register.html", s.newPage(r, "注册", "register"))
+	p := s.newPage(r, "注册", "register")
+	p.Data["MailVerify"] = s.mailVerifyEnabled(r.Context())
+	s.render(w, r, "register.html", p)
 }
 
-// handleRegisterPost creates an account.
+// handleRegisterPost creates an account, or starts email verification when
+// that feature is enabled in site settings.
 func (s *Server) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.AllowSignup {
 		s.renderError(w, r, http.StatusForbidden, "本站未开放注册")
@@ -125,6 +138,7 @@ func (s *Server) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		p := s.newPage(r, "注册", "register")
 		p.Error = msg
 		p.Data["Email"] = email
+		p.Data["MailVerify"] = s.mailVerifyEnabled(ctx)
 		w.WriteHeader(http.StatusBadRequest)
 		s.render(w, r, "register.html", p)
 	}
@@ -154,24 +168,239 @@ func (s *Server) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 		fail("注册失败，请稍后重试")
 		return
 	}
+
+	// Optional email verification: hold the password hash + send a 6-digit
+	// code instead of creating the user immediately.
+	if s.mailVerifyEnabled(ctx) {
+		if _, ok := s.loadSMTP(ctx); !ok {
+			fail("站点已开启邮箱验证，但管理员尚未配置 SMTP，请稍后再试或联系管理员")
+			return
+		}
+		code, err := randomDigits(6)
+		if err != nil {
+			fail("注册失败，请稍后重试")
+			return
+		}
+		token := randToken(24)
+		if err := s.db.SaveEmailVerification(ctx, email, hash, code, token, verifyCodeTTL); err != nil {
+			fail("注册失败，请稍后重试")
+			return
+		}
+		site := s.db.Setting(ctx, "site_name", s.cfg.SiteName)
+		if err := s.sendVerifyCode(ctx, email, code, site); err != nil {
+			// Keep the pending row so a later resend (or re-register) can reuse the flow.
+			fail("验证码发送失败：" + err.Error() + "。请检查邮箱或稍后重试。")
+			return
+		}
+		s.db.Audit(ctx, 0, email, "user.register.verify_sent", "", clientIP(r))
+		http.Redirect(w, r, "/register/verify?token="+urlQueryEscape(token), http.StatusSeeOther)
+		return
+	}
+
+	// Direct registration (verification off).
+	if err := s.finishRegistration(w, r, email, hash); err != nil {
+		fail(err.Error())
+		return
+	}
+}
+
+// finishRegistration creates the user, starts a session and redirects to /app.
+func (s *Server) finishRegistration(w http.ResponseWriter, r *http.Request, email, hash string) error {
+	ctx := r.Context()
 	// The very first account bootstraps the administrator.
 	count, _ := s.db.CountUsers(ctx)
 	uid, err := s.db.CreateUser(ctx, email, hash, count == 0)
 	if err != nil {
-		fail("该邮箱已被注册")
-		return
+		return errors.New("该邮箱已被注册")
 	}
 	u, err := s.db.UserByID(ctx, uid)
 	if err != nil {
-		fail("注册失败，请稍后重试")
+		return errors.New("注册失败，请稍后重试")
+	}
+	if err := s.startSession(w, r, u); err != nil {
+		return errors.New("创建会话失败")
+	}
+	s.db.Audit(ctx, uid, email, "user.register", "", clientIP(r))
+	http.Redirect(w, r, "/app", http.StatusSeeOther)
+	return nil
+}
+
+// handleRegisterVerifyPage shows the 6-digit code form.
+func (s *Server) handleRegisterVerifyPage(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.AllowSignup {
+		s.renderError(w, r, http.StatusForbidden, "本站未开放注册")
+		return
+	}
+	if userFrom(r) != nil {
+		http.Redirect(w, r, "/app", http.StatusSeeOther)
+		return
+	}
+	token := formStr(r, "token", 128)
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
+	p := s.newPage(r, "邮箱验证", "register")
+	p.Data["Token"] = token
+	if token == "" {
+		p.Error = "缺少验证令牌，请重新注册"
+		s.render(w, r, "register_verify.html", p)
+		return
+	}
+	v, err := s.db.EmailVerificationByToken(r.Context(), token)
+	if err != nil || time.Now().Unix() > v.ExpiresAt {
+		p.Error = "验证已过期或无效，请重新注册"
+		p.Data["Token"] = ""
+		s.render(w, r, "register_verify.html", p)
+		return
+	}
+	p.Data["Email"] = maskEmail(v.Email)
+	if r.URL.Query().Get("resent") == "1" {
+		p.Flash = "验证码已重新发送，请查收邮箱"
+	}
+	if r.URL.Query().Get("err") == "send" {
+		p.Error = "验证码发送失败，请稍后重试或检查邮箱地址"
+	}
+	s.render(w, r, "register_verify.html", p)
+}
+
+// handleRegisterVerifyPost checks the 6-digit code and completes registration.
+func (s *Server) handleRegisterVerifyPost(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.AllowSignup {
+		s.renderError(w, r, http.StatusForbidden, "本站未开放注册")
+		return
+	}
+	ctx := r.Context()
+	token := formStr(r, "token", 128)
+	code := strings.TrimSpace(formStr(r, "code", 8))
+
+	fail := func(msg, emailMask string) {
+		p := s.newPage(r, "邮箱验证", "register")
+		p.Error = msg
+		p.Data["Token"] = token
+		p.Data["Email"] = emailMask
+		w.WriteHeader(http.StatusBadRequest)
+		s.render(w, r, "register_verify.html", p)
+	}
+
+	if token == "" || len(code) != 6 {
+		fail("请输入 6 位验证码", "")
+		return
+	}
+	v, err := s.db.EmailVerificationByToken(ctx, token)
+	if err != nil {
+		fail("验证已过期或无效，请重新注册", "")
+		return
+	}
+	if time.Now().Unix() > v.ExpiresAt {
+		_ = s.db.DeleteEmailVerification(ctx, v.ID)
+		fail("验证码已过期，请重新注册", maskEmail(v.Email))
+		return
+	}
+	if v.Attempts >= verifyMaxAttempts {
+		_ = s.db.DeleteEmailVerification(ctx, v.ID)
+		fail("验证失败次数过多，请重新注册", maskEmail(v.Email))
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(code), []byte(v.Code)) != 1 {
+		_ = s.db.BumpEmailVerificationAttempts(ctx, v.ID)
+		fail("验证码错误，请重试", maskEmail(v.Email))
+		return
+	}
+
+	// Race-safe: if someone else registered the same email in the meantime.
+	if _, err := s.db.UserByEmail(ctx, v.Email); err == nil {
+		_ = s.db.DeleteEmailVerification(ctx, v.ID)
+		fail("该邮箱已被注册", maskEmail(v.Email))
+		return
+	}
+
+	count, _ := s.db.CountUsers(ctx)
+	uid, err := s.db.CreateUser(ctx, v.Email, v.PasswordHash, count == 0)
+	if err != nil {
+		fail("该邮箱已被注册", maskEmail(v.Email))
+		return
+	}
+	_ = s.db.DeleteEmailVerification(ctx, v.ID)
+	u, err := s.db.UserByID(ctx, uid)
+	if err != nil {
+		fail("注册失败，请稍后重试", maskEmail(v.Email))
 		return
 	}
 	if err := s.startSession(w, r, u); err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "创建会话失败")
 		return
 	}
-	s.db.Audit(ctx, uid, email, "user.register", "", clientIP(r))
+	s.db.Audit(ctx, uid, v.Email, "user.register", "email_verified", clientIP(r))
 	http.Redirect(w, r, "/app", http.StatusSeeOther)
+}
+
+// handleRegisterVerifyResend re-issues a 6-digit code for an existing challenge.
+func (s *Server) handleRegisterVerifyResend(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.AllowSignup {
+		s.renderError(w, r, http.StatusForbidden, "本站未开放注册")
+		return
+	}
+	ctx := r.Context()
+	token := formStr(r, "token", 128)
+	if token == "" {
+		s.renderError(w, r, http.StatusBadRequest, "缺少验证令牌")
+		return
+	}
+	v, err := s.db.EmailVerificationByToken(ctx, token)
+	if err != nil {
+		s.renderError(w, r, http.StatusBadRequest, "验证已过期或无效，请重新注册")
+		return
+	}
+	// Allow resend even after expiry of the old code — issue a fresh one with
+	// the same password hash and a new token so the form URL stays valid.
+	code, err := randomDigits(6)
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "生成验证码失败")
+		return
+	}
+	newToken := randToken(24)
+	if err := s.db.SaveEmailVerification(ctx, v.Email, v.PasswordHash, code, newToken, verifyCodeTTL); err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "保存验证码失败")
+		return
+	}
+	site := s.db.Setting(ctx, "site_name", s.cfg.SiteName)
+	if err := s.sendVerifyCode(ctx, v.Email, code, site); err != nil {
+		// Keep the new pending row so the user can try again.
+		http.Redirect(w, r, "/register/verify?token="+urlQueryEscape(newToken)+"&err=send", http.StatusSeeOther)
+		return
+	}
+	s.db.Audit(ctx, 0, v.Email, "user.register.verify_resent", "", clientIP(r))
+	http.Redirect(w, r, "/register/verify?token="+urlQueryEscape(newToken)+"&resent=1", http.StatusSeeOther)
+}
+
+// randomDigits returns an n-digit decimal code (leading zeros allowed).
+func randomDigits(n int) (string, error) {
+	if n <= 0 || n > 12 {
+		return "", fmt.Errorf("invalid digit length")
+	}
+	var b strings.Builder
+	b.Grow(n)
+	for i := 0; i < n; i++ {
+		v, err := rand.Int(rand.Reader, big.NewInt(10))
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(byte('0' + v.Int64()))
+	}
+	return b.String(), nil
+}
+
+// maskEmail hides the local-part middle so templates can show where the code went.
+func maskEmail(email string) string {
+	at := strings.IndexByte(email, '@')
+	if at <= 1 {
+		return email
+	}
+	local, domain := email[:at], email[at:]
+	if len(local) <= 2 {
+		return local[:1] + "***" + domain
+	}
+	return local[:1] + "***" + local[len(local)-1:] + domain
 }
 
 // handleLogout ends the session.

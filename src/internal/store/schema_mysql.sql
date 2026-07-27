@@ -197,3 +197,16 @@ CREATE TABLE IF NOT EXISTS recharge_orders (
   KEY idx_orders_status (status),
   CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+  email         VARCHAR(254) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  code          VARCHAR(8)   NOT NULL,
+  token         VARCHAR(191) NOT NULL UNIQUE,
+  attempts      INT    NOT NULL DEFAULT 0,
+  expires_at    BIGINT NOT NULL,
+  created_at    BIGINT NOT NULL,
+  KEY idx_email_verif_email (email),
+  KEY idx_email_verif_exp (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

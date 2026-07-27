@@ -44,6 +44,7 @@ type Server struct {
 		signup *limiter
 		redeem *limiter
 		action *limiter
+		verify *limiter
 	}
 	// avail caches which images each node can actually deliver.
 	avail *availCache
@@ -58,6 +59,7 @@ func New(cfg Config, db *store.DB) (*Server, error) {
 	s.limits.signup = newLimiter(5, time.Hour)
 	s.limits.redeem = newLimiter(10, 10*time.Minute)
 	s.limits.action = newLimiter(120, time.Minute)
+	s.limits.verify = newLimiter(10, 15*time.Minute)
 
 	t, err := template.New("").Funcs(s.funcMap()).ParseFS(tmplFS, "templates/*.html")
 	if err != nil {
@@ -84,6 +86,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /login", s.rateLimit(s.limits.login, s.handleLoginPost))
 	mux.HandleFunc("GET /register", s.handleRegisterPage)
 	mux.HandleFunc("POST /register", s.rateLimit(s.limits.signup, s.handleRegisterPost))
+	mux.HandleFunc("GET /register/verify", s.handleRegisterVerifyPage)
+	mux.HandleFunc("POST /register/verify", s.rateLimit(s.limits.verify, s.handleRegisterVerifyPost))
+	mux.HandleFunc("POST /register/verify/resend", s.rateLimit(s.limits.verify, s.handleRegisterVerifyResend))
 	mux.HandleFunc("POST /logout", s.requireUser(s.csrfGuard(s.handleLogout)))
 
 	// Tenant

@@ -191,3 +191,17 @@ CREATE TABLE IF NOT EXISTS recharge_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON recharge_orders(user_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON recharge_orders(status);
+
+-- Pending registration email verification (6-digit code + opaque token).
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  email         TEXT    NOT NULL,
+  password_hash TEXT    NOT NULL,
+  code          TEXT    NOT NULL,                    -- 6-digit numeric code
+  token         TEXT    NOT NULL UNIQUE,             -- opaque URL token for verify page
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  expires_at    INTEGER NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_email_verif_email ON email_verifications(email);
+CREATE INDEX IF NOT EXISTS idx_email_verif_exp   ON email_verifications(expires_at);

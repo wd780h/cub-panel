@@ -91,6 +91,54 @@
       </div>
     </div>
 
+    <div class="card mb-2">
+      <h3>注册邮箱验证</h3>
+      <p class="hint" style="margin-top:-.4em">开启后，用户注册须先收到并填写 <strong>6 位数字验证码</strong> 才能创建账号。关闭时保持原有直接注册流程。默认关闭。</p>
+      <div class="form-grid">
+        <div class="field span2">
+          <label class="check">
+            <input type="checkbox" name="mail_verify_enabled" value="1" {{if .Data.MailVerify}}checked{{end}}>
+            <span>开启注册邮箱验证</span>
+          </label>
+          <p class="hint">开启前请先配置下方 SMTP；否则用户注册会提示无法发送验证码。</p>
+        </div>
+        <div class="field">
+          <label for="m-host">SMTP 主机</label>
+          <input id="m-host" type="text" name="smtp_host" maxlength="200" value="{{.Data.SMTPHost}}"
+                 class="mono" placeholder="smtp.example.com">
+        </div>
+        <div class="field">
+          <label for="m-port">SMTP 端口</label>
+          <input id="m-port" type="text" name="smtp_port" maxlength="8" value="{{.Data.SMTPPort}}"
+                 class="mono" placeholder="587">
+        </div>
+        <div class="field">
+          <label for="m-user">SMTP 用户名</label>
+          <input id="m-user" type="text" name="smtp_user" maxlength="200" value="{{.Data.SMTPUser}}"
+                 class="mono" placeholder="可选，视服务商要求">
+        </div>
+        <div class="field">
+          <label for="m-pass">SMTP 密码</label>
+          <input id="m-pass" type="password" name="smtp_pass" maxlength="200" value=""
+                 class="mono" placeholder="{{if .Data.SMTPPass}}已保存，留空不修改{{else}}可选{{end}}" autocomplete="new-password">
+        </div>
+        <div class="field span2">
+          <label for="m-from">发件人地址</label>
+          <input id="m-from" type="text" name="smtp_from" maxlength="200" value="{{.Data.SMTPFrom}}"
+                 class="mono" placeholder="noreply@example.com">
+          <p class="hint">须与 SMTP 服务商允许的发件域一致。</p>
+        </div>
+        <div class="field">
+          <label for="m-tls">加密方式</label>
+          <select id="m-tls" name="smtp_tls">
+            <option value="starttls" {{if eq .Data.SMTPTLS "starttls"}}selected{{end}}>STARTTLS（常用 587）</option>
+            <option value="tls" {{if eq .Data.SMTPTLS "tls"}}selected{{end}}>TLS / SSL（常用 465）</option>
+            <option value="none" {{if eq .Data.SMTPTLS "none"}}selected{{end}}>无加密（仅内网）</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
     <div class="btn-row">
       <button class="btn btn-primary" type="submit">保存设置</button>
     </div>
